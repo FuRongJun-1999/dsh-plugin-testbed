@@ -1,0 +1,28 @@
+{
+  "name": "@deepseek-ai/dsh-plugin-testbed",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH local self-check meta-plugin: runs a developer-owned PUT through a trusted control kernel and emits an auditable receipt/v1.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "selfcheck": "node bin/selfcheck.js selfcheck"
+  },
+  "bin": { "plugin-selfcheck": "./bin/selfcheck.js" },
+  "exports": {
+    ".": "./index.js",
+    "./bin": "./bin/selfcheck.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "src/**",
+    "bin/selfcheck.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "engines": { "node": ">=20" }
+}

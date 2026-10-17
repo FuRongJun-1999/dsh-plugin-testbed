@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# self-check outputs / generated artifacts
+.dsh-testbed-receipts/
+cli-smoke-*/
+coverage/
+*.log
+*.tgz
+
+# editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# documents stay local-only and are intentionally not pushed
+CONTRACT*.md
+ACCEPTANCE.md

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Plugin Testbed",
+    "description": "Local self-check for developer-owned DSH plugins: frozen plan, trusted gate kernel, and an auditable receipt/v1."
+  }
+}

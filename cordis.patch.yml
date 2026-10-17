@@ -1,0 +1,4 @@
+- insert:
+    - id: plugin-testbed
+      name: '@deepseek-ai/dsh-plugin-testbed'
+      config: {}
