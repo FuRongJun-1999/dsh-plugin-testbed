@@ -1,0 +1,32 @@
+{
+  "schema_version": "run-spec/v1",
+  "target": {
+    "kind": "plugin",
+    "put_digest": "sha256:abababababababababababababababababababababababababababababababab"
+  },
+  "profile_ref": {
+    "id": "cli-smoke-subprocess",
+    "version": "1.0.0"
+  },
+  "policy_ref": {
+    "id": "gate-policy",
+    "version": "1.0.0"
+  },
+  "scenario": {
+    "cases": [
+      {
+        "test_id": "cli.smoke.subprocess.required",
+        "node_id": "cli.smoke.subprocess.required",
+        "classification": "required",
+        "criteria": {
+          "assert": "equals",
+          "expected": 200
+        },
+        "probe": {
+          "op": "echo",
+          "value": 200
+        }
+      }
+    ]
+  }
+}
