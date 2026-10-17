@@ -4,7 +4,8 @@
  * @module @deepseek-ai/dsh-plugin-testbed/kernel
  */
 import { randomUUID } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { isAbsolute } from 'node:path'
 import { isRunSpecVersion } from './protocol/schemas.js'
 import { sha256Hex, canonicalJson } from './protocol/digest.js'
@@ -28,7 +29,27 @@ const BASE_LIMITATIONS = Object.freeze([
 // DSH checkout HEAD = 86a402200d（= 架构 §13 核对快照）；Cordis = 4.0.5-alpha.2（vendored built entry）。
 const LOCKED_DSH_COMMIT = '86a402200d95fecef4529d969836f1fe13c6cb0d'
 const LOCKED_CORDIS_VERSION = '4.0.5-alpha.2'
-const DEFAULT_CORDIS_ENTRY = 'file:///D:/deepseek-harness/vendor/cordis/lib/index.js'
+
+/**
+ * 默认 cordis 入口的解析链（全部失败 → null，由调用方在需要时 fail-closed）：
+ * 1. 环境变量 DSH_TESTBED_CORDIS_ENTRY（本地路径或 file:// URL）；
+ * 2. 从本包位置向上解析 cordis——装进 DSH 宿主时命中的就是宿主自带的。
+ *
+ * 此前这里是开发者本机的绝对路径（file:///D:/deepseek-harness/...），任何
+ * fresh clone 的 load-put 场景都必然 import 失败（M3 三个失败同因）。
+ */
+function resolveDefaultCordisEntry() {
+  const env = process.env.DSH_TESTBED_CORDIS_ENTRY
+  if (env) return pathToFileURL(env).href
+  try {
+    const require = createRequire(import.meta.url)
+    for (const specifier of ['cordis/lib/index.js', 'cordis']) {
+      try { return pathToFileURL(require.resolve(specifier)).href } catch { /* 试下一个 */ }
+    }
+  } catch { /* 解析环境不可用视同未找到 */ }
+  return null
+}
+const DEFAULT_CORDIS_ENTRY = resolveDefaultCordisEntry()
 
 function freshRunId() {
   return `run-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
@@ -217,11 +238,18 @@ export async function runSelfCheck(runSpec, opts = {}) {
   let cleanup = null
   let cleanupFailure = null
   try {
+    // 只有 load-put 探针需要 cordis；其余场景不因 cordis 缺席而失败。
+    const needsCordis = compiled.candidate.cases.some((c) => c.probe?.op === 'load-put')
+    const cordisEntry = opts.cordisEntry ?? DEFAULT_CORDIS_ENTRY
+    if (!cordisEntry && needsCordis) {
+      throw new Error('未找到 cordis 入口（load-put 场景需要）：装进 DSH 宿主时会自动解析宿主自带的 cordis；'
+        + '独立使用请设置环境变量 DSH_TESTBED_CORDIS_ENTRY（本地路径或 file:// URL），或传入 opts.cordisEntry。')
+    }
     port = await makePort(executionMode, {
       runId,
       planId: frozen.plan_id,
       timeoutMs: opts.timeoutMs,
-      cordisEntry: opts.cordisEntry ?? DEFAULT_CORDIS_ENTRY,
+      cordisEntry,
       toolBindings,
       capabilitySnapshotRefs: toolCapabilitySnapshotRefs,
       targetRef: targetReference(runSpec?.target),
@@ -447,6 +475,7 @@ function provenanceOf(runSpec, executionMode, launchRecord = null, details = {})
     cordis_version: LOCKED_CORDIS_VERSION,
     ...provider,
     tool_refs: details.toolRefs ?? [],
+    cordis_entry: details.cordis_entry ?? null,
     assertion_refs: [],
     cleanup: details.cleanup ?? null,
     cleanup_failure: details.cleanup_failure ?? null,

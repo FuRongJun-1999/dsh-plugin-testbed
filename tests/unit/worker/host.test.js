@@ -18,8 +18,17 @@ import { TEST_TOOL_PROTOCOL_VERSION } from '../../../src/protocol/enums.js'
 // host 是子进程入口：由其自身所在模块目录的相对路径解析出绝对路径。
 const HOST_ENTRY = fileURLToPath(new URL('../../../src/worker/host.js', import.meta.url))
 
-// 真实 Cordis built entry（CONTRACT-m3 §0/§3 锚定的 Windows 绝对 file URL）。
-const CORDIS_ENTRY = 'file:///D:/deepseek-harness/vendor/cordis/lib/index.js'
+// 真实 Cordis built entry：与 src/kernel.js 同一条解析链（env → 向上解析包），
+// 不再指向开发者本机的绝对路径——那会让任何 fresh clone 的本套件必然失败。
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
+const resolveCordisEntry = () => {
+  const env = process.env.DSH_TESTBED_CORDIS_ENTRY
+  if (env) return pathToFileURL(env).href
+  const require = createRequire(import.meta.url)
+  return pathToFileURL(require.resolve('cordis')).href
+}
+const CORDIS_ENTRY = resolveCordisEntry()
 // 合规 fixture PUT（worker-owner 自有，避免与 tests-owner 的 put-compliant.js 撞名）。
 const PUT_ENTRY = new URL('../../fixtures/put-host-compliant.mjs', import.meta.url).href
 

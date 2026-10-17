@@ -47,9 +47,22 @@ node bin/selfcheck.js project --receipt <receipt.json> --format junit,tap,html,c
 | `blocked` | 2 | 2 |
 | 写不出有效 receipt / receipt 无效 | 3 | 3 |
 
+## cordis 入口解析（load-put 场景）
+
+`load-put` 探针需要真实 cordis。解析顺序：
+
+1. 显式传参 `opts.cordisEntry`
+2. 环境变量 `DSH_TESTBED_CORDIS_ENTRY`（本地路径或 file:// URL）
+3. 从本包位置向上解析 `cordis`——装进 DSH 宿主时命中的就是宿主自带的那份
+4. 都没有 → `load-put` 场景 fail-closed，报错里带可操作指引（其余场景不受影响）
+
+此前开发者机器的绝对路径（file:///D:/deepseek-harness/...）导致 fresh clone 的
+M3 集成测试与 host 单测必然失败，已改为上述解析链。
+
 ## 开发
 
 ```bash
+npm install cordis@4.0.0-rc.11 --no-save   # 独立跑 load-put 测试用（宿主内无需）
 node --test "tests/**/*.test.js"
 ```
 
