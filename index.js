@@ -13,14 +13,14 @@ export function apply(ctx) {
     name: 'plugin_selfcheck',
     description:
       'Run an explicit local self-check for a developer-owned DSH plugin (PUT). It freezes a test '
-      + 'plan, runs a trusted gate kernel over in-process observations, and emits a local-only '
+      + 'plan, runs a trusted gate kernel over worker observations, and emits a local-only '
       + 'receipt/v1 with a recomputable SHA-256 digest. This is NOT market gate; trust_scope is '
       + 'always local-only and market_eligible is always false. Pass a run-spec/v1 `spec` object.',
     parameters: {
       spec: {
         type: 'json',
         required: true,
-        description: 'run-spec/v1: schema_version, target, scenario.cases (test_id/node_id/classification/criteria/probe), profile_ref, policy_ref.',
+        description: 'run-spec/v1: schema_version, target, scenario.cases (test_id/node_id/classification/criteria/probe|tool), profile_ref, policy_ref.',
       },
       profile: {
         type: 'string',
@@ -31,6 +31,15 @@ export function apply(ctx) {
         type: 'string',
         description: 'Directory to write the receipt. Default: .dsh-testbed-receipts.',
       },
+      execution_mode: {
+        type: 'string',
+        description: 'Execution isolation. in-process = L0 (default); subprocess = L1 fault isolation (not a security boundary).',
+        enum: ['in-process', 'subprocess'],
+      },
+      runtime_anchor: {
+        type: 'json',
+        description: 'Optional locked-runtime descriptor injected by the deployment (no host path is hard-coded).',
+      },
     },
     output: {
       schema: { type: 'json' },
@@ -40,6 +49,8 @@ export function apply(ctx) {
       return runSelfCheck(args.spec, {
         profile: args.profile,
         receiptOutDir: args.receipt_out,
+        executionMode: args.execution_mode,
+        runtimeAnchor: args.runtime_anchor,
         signal: exec?.signal,
       })
     },

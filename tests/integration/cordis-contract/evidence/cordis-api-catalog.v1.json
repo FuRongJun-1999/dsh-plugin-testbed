@@ -1,0 +1,152 @@
+{
+  "schema_version": "cordis-api-catalog/v1",
+  "catalog_id": "cordis-runtime-api-catalog",
+  "catalog_version": "1.0.0",
+  "package": {
+    "name": "@deepseek-ai/cordis",
+    "version": "4.0.5"
+  },
+  "exports": [
+    "Context",
+    "CordisError",
+    "DisposableList",
+    "EventsService",
+    "Fiber",
+    "Inject",
+    "Logger",
+    "LoggerService",
+    "RegistryService",
+    "Service",
+    "ValidationError",
+    "buildOuterStack",
+    "c16",
+    "c256",
+    "composeError",
+    "createCallable",
+    "defaultFormatters",
+    "getPropertyDescriptor",
+    "getTraceable",
+    "isBailed",
+    "isConstructor",
+    "isObject",
+    "joinPrototype",
+    "resolveConfig",
+    "symbols",
+    "withProps"
+  ],
+  "api": {
+    "Context": {
+      "static": [
+        "constructor",
+        "effect",
+        "extend",
+        "filter",
+        "intercept",
+        "is",
+        "isolate"
+      ],
+      "instance": [
+        "constructor",
+        "effect",
+        "extend",
+        "filter",
+        "intercept",
+        "is",
+        "isolate"
+      ]
+    },
+    "EventsService": {
+      "instance": [
+        "bail",
+        "constructor",
+        "dispatch",
+        "emit",
+        "on",
+        "once",
+        "parallel",
+        "register",
+        "serial",
+        "unregister",
+        "waterfall"
+      ]
+    },
+    "RegistryService": {
+      "instance": [
+        "constructor",
+        "counter",
+        "delete",
+        "entries",
+        "forEach",
+        "get",
+        "has",
+        "inject",
+        "keys",
+        "plugin",
+        "resolve",
+        "size",
+        "values"
+      ]
+    },
+    "Service": {
+      "static": [
+        "check",
+        "config",
+        "constructor",
+        "extend",
+        "init",
+        "invoke",
+        "resolveConfig",
+        "tracker"
+      ],
+      "instance": [
+        "check",
+        "config",
+        "constructor",
+        "extend",
+        "init",
+        "invoke",
+        "resolveConfig",
+        "tracker"
+      ]
+    },
+    "Fiber": {
+      "instance": [
+        "_checkImpl",
+        "_execute",
+        "_getState",
+        "_refresh",
+        "_reload",
+        "_resolveConfig",
+        "_setEpoch",
+        "_unload",
+        "_updateState",
+        "assertActive",
+        "await",
+        "constructor",
+        "effect",
+        "getEffects",
+        "restart",
+        "update"
+      ]
+    },
+    "ValidationError": "function",
+    "CordisError": "function"
+  },
+  "fiber_states": {
+    "PENDING": 0,
+    "LOADING": 1,
+    "ACTIVE": 2,
+    "FAILED": 3,
+    "DISPOSED": 4,
+    "UNLOADING": 5,
+    "source": "lib/types/fiber.d.ts (locked package)"
+  },
+  "node_builtins_used": [
+    "node:crypto",
+    "node:fs",
+    "node:module",
+    "node:path",
+    "node:url"
+  ],
+  "observed_at": null
+}

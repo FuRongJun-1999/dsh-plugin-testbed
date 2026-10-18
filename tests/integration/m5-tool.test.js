@@ -4,7 +4,8 @@
  * 走 `runSelfCheck(spec, { executionMode:'subprocess' })`，case 带 manifest/input 与真实 artifact 路径，
  * 由 manifest runner 执行一次性字节快照，验证 CONTRACT-m5 §4 四条：
  *   ① 合法 tool（manifest 过 validateToolManifest，input 过 input_schema，observation 过
- *      observation_schema）→ observation verdict=pass，但无可信独立启动来源时 invocation=unknown，gate blocked、exit 2。
+ *      observation_schema）→ observation verdict=pass；adapter 的 OS spawn 见证给出独立
+ *      `invocation_status=started`，required 全 pass → gate=pass、exit 0（仅本地 profile）。
  *   ② 非法 manifest（缺 artifact_digest）→ pre-plan blocked（plan_id=null、reconciliation=null、
  *      reason_codes 含 tool-manifest-invalid）、exit 2。
  *   ③ 输入不合 input_schema → pre-plan blocked（reason 含 tool-input-schema-invalid）。
@@ -12,7 +13,7 @@
  *      attempt.reason_codes 含 observation-schema-invalid。
  *
  * 依赖：src/protocol/{jsonschema,tool-manifest}.js、kernel 的 artifact pinning/strict dispatch 与 receipt
- * evidence fields，以及 adapter 的 worker/child notification handling（无独立可信启动源时为 unknown/false）。
+ * evidence fields，以及 adapter 的 independent OS-spawn start witness（worker 自报帧永不升级为 started）。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -96,10 +97,10 @@ function readReceipt(result) {
 }
 
 // ---------------------------------------------------------------------------
-// §4① 合法 tool executes but is not independently verified as started → blocked
+// §4① 合法 tool executes and has an independent OS-spawn start witness → pass
 // ---------------------------------------------------------------------------
 
-test('§4① 合法 tool executes; without trusted invocation evidence it is blocked/unknown', async (t) => {
+test('§4① 合法 tool 执行并产生独立 OS spawn 启动见证 → gate=pass、exit 0', async (t) => {
   const dir = tmpDir()
   cleanup(t, dir)
   const artifact = writeToolArtifact(dir)
@@ -113,19 +114,26 @@ test('§4① 合法 tool executes; without trusted invocation evidence it is blo
   ])
 
   const out = await runSelfCheck(spec, { executionMode: 'subprocess', receiptOutDir: dir })
-  assert.equal(out.gateDecision, 'blocked')
-  assert.equal(out.exitCode, 2)
+  assert.equal(out.gateDecision, 'pass')
+  assert.equal(out.exitCode, 0)
 
   const receipt = readReceipt(out)
   assert.notEqual(receipt.plan_id, null, '合法 tool 应走 frozen Plan 形态')
   const tc = receipt.test_cases.find((c) => c.test_id === 't.legal')
   assert.equal(tc.execution_status, 'completed', 'the manifest artifact returns a valid observation')
   assert.equal(tc.verdict, 'pass', 'valid tool result remains a passing test verdict')
-  assert.equal(tc.invocation_status, 'unknown', 'worker/child notifications are not trusted invocation evidence')
-  assert.equal(tc.invocation_evidence_verified, false, 'worker/child notifications must not verify invocation')
+  assert.equal(tc.invocation_status, 'started', 'adapter OS-spawn witness is independent start evidence')
+  assert.equal(tc.invocation_evidence_verified, true)
   assert.equal(tc.attempts[0].execution_status, 'completed')
-  assert.equal(tc.attempts[0].invocation_status, 'unknown')
-  assert.equal(tc.attempts[0].invocation_evidence_verified, false)
+  assert.equal(tc.attempts[0].invocation_status, 'started')
+  assert.equal(tc.attempts[0].invocation_evidence_verified, true)
+  assert.ok(
+    typeof tc.attempts[0].started_at === 'string' && Number.isFinite(Date.parse(tc.attempts[0].started_at)),
+    'started_at comes from the adapter clock, not a worker self-report',
+  )
+  // Local pass never becomes market eligibility.
+  assert.equal(receipt.trust_scope, 'local-only')
+  assert.equal(receipt.market_eligible, false)
 })
 
 // ---------------------------------------------------------------------------

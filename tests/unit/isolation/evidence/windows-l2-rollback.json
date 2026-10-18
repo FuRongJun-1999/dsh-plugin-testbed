@@ -1,0 +1,15 @@
+{
+  "schema_version": "windows-l2-rollback-evidence/v1",
+  "executed_at": "2026-10-18T20:09:33.780Z",
+  "command": "launcher.ps1 -Mode delete-profile -AuthorizationPath <authorization.json>",
+  "result": "profile-deleted",
+  "profile_name": "DshTestbedL2",
+  "package_folder_removed": true,
+  "post_rollback_profile_exists": false,
+  "authorization_ref": "t4-windows-l2-authorization-2026-10-19",
+  "notes": [
+    "DeleteAppContainerProfile returned success",
+    "inspect after rollback reports profile_exists=false",
+    "no local user, service, firewall rule or optional feature was changed"
+  ]
+}

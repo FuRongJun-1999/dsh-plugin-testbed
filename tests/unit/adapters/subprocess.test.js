@@ -1,63 +1,81 @@
 /**
- * src/adapters/subprocess.js 的单元测试（node:test，真实 spawn L1 子进程）。
+ * src/adapters/subprocess.js 传输/生命周期单元测试（node:test，真实 spawn L1 子进程）。
  *
- * workerEntry：若 worker-owner 已落 src/worker/host.js 则用真实入口，否则用本目录的
- * tests/fixtures/worker-fixture.js（其协议行为与 CONTRACT-m2 §2 一致）跑通；
- * host.js 落地后自动切换，无需改本测试。
+ * 覆盖：
+ * - legacy control-protocol/v1 的内建 smoke 传输（echo/error/sleep）与拒绝语义；
+ * - worker started 帧 / 伪造时间戳 / 错配 / 未知帧**永不**产生独立启动见证；
+ * - test-tool/v1 的独立启动见证语义（adapter 自己 spawn 的 OS 进程事实）；
+ * - preflight admission、串行 in-flight、超时/超限/回收幂等。
+ *
+ * 隔离定位：L1 普通同权限子进程 = 故障隔离，不是安全边界。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { fileURLToPath } from 'node:url'
-import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { access } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-
-import { buildToolRequestFrame } from '../../../src/protocol/transport.js'
 
 import {
+  ADAPTER_REF,
+  ENFORCED_LIMITS,
   ISOLATION_LEVEL,
   UNENFORCED_RESOURCES,
-  ENFORCED_LIMITS,
   makeSubprocessAdapter,
 } from '../../../src/adapters/subprocess.js'
+import {
+  INVOCATION_START_KIND,
+  INVOCATION_WITNESS_LIMITATIONS,
+  INVOCATION_WITNESS_MECHANISM,
+  INVOCATION_WITNESS_SCOPE,
+  INVOCATION_WITNESS_SOURCE,
+} from '../../../src/adapters/invocation-witness.js'
+import {
+  FAKE_TIMESTAMP_FIXTURE,
+  LEGACY_FIXTURE,
+  WRONG_CORR_FIXTURE,
+  assertNoVerdictKeys,
+  cleanupDirs,
+  makePinnedToolCase,
+  makeTempDir,
+  unique,
+  writeWorkerScript,
+} from './_helpers.js'
 
-const realHost = new URL('../../../src/worker/host.js', import.meta.url)
-const fixtureHost = new URL('../../fixtures/worker-fixture.js', import.meta.url)
-const workerEntry = fileURLToPath(existsSync(realHost) ? realHost : fixtureHost)
-
-const exists = (p) => access(p).then(() => true, () => false)
-const NO_VERDICT_KEYS = ['verdict', 'gate_decision', 'required', 'expected', 'plan', 'plan_id']
-
-/** 断言 attemptTerminal 不含任何 verdict/gate/required/expected/plan 类字段。 */
-function assertNoVerdictKeys(outcome) {
-  for (const k of NO_VERDICT_KEYS) assert.ok(!(k in outcome), `attemptTerminal 不应携带字段 ${k}`)
+const exists = async (path) => {
+  const { access } = await import('node:fs/promises')
+  return access(path).then(() => true, () => false)
 }
 
-test('导出：ISOLATION_LEVEL / UNENFORCED_RESOURCES / ENFORCED_LIMITS 与契约闭集一致', () => {
+test('导出：adapter 身份、L1 声明与见证闭集', () => {
+  assert.equal(ADAPTER_REF, 'local-worker-json@1.0.0')
   assert.equal(ISOLATION_LEVEL, 'L1-subprocess')
   assert.deepEqual([...UNENFORCED_RESOURCES], ['filesystem', 'network', 'subprocess', 'devices', 'cpu_ms', 'memory_mb'])
-  assert.deepEqual([...ENFORCED_LIMITS], ['max_frame_bytes', 'max_output_bytes', 'timeout_ms', 'processes'])
+  assert.deepEqual([...ENFORCED_LIMITS], [
+    'max_frame_bytes', 'max_output_bytes', 'attachment_bytes', 'timeout_ms', 'concurrency', 'max_context_bytes',
+  ])
+  assert.equal(INVOCATION_START_KIND, 'invocation-start/v1')
+  assert.equal(INVOCATION_WITNESS_MECHANISM, 'os-child-spawn')
+  assert.equal(INVOCATION_WITNESS_SOURCE, 'control-plane-launcher')
+  assert.equal(INVOCATION_WITNESS_SCOPE, 'test-tool-attempts')
+  assert.ok(INVOCATION_WITNESS_LIMITATIONS.includes('l1-fault-isolation-is-not-a-security-boundary'))
 })
 
-test('echo：真实 spawn，worker started 通知不构成可信证据；observation + launchRecord + 无 verdict 字段', async () => {
-  const adapter = makeSubprocessAdapter({ workerEntry, runId: `echo-${Date.now()}` })
+test('echo（legacy）：真实 spawn、observation 归一化、launchRecord 与无 verdict 字段', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: LEGACY_FIXTURE, runId: unique('echo') })
   try {
     const { pid } = adapter.start()
-    assert.ok(typeof pid === 'number' && pid > 0, 'start() 应返回正整数 pid')
+    assert.ok(Number.isSafeInteger(pid) && pid > 0, 'start() 应返回常驻 worker pid')
 
     const rec = adapter.launchRecord
+    assert.equal(rec.adapter_ref, ADAPTER_REF)
+    assert.equal(rec.owner, adapter.runId)
     assert.equal(rec.isolation, 'L1-subprocess')
     assert.equal(rec.pid, pid)
-    assert.equal(typeof rec.temp_dir, 'string')
-    assert.ok(rec.temp_dir.includes('dsh-testbed-'), 'temp_dir 应按 owner(run_id) 命名')
+    assert.equal(rec.state, 'ready')
+    assert.match(rec.temp_dir, /dsh-testbed-/)
     assert.deepEqual([...rec.enforceable], ENFORCED_LIMITS)
     assert.deepEqual([...rec.unenforced], UNENFORCED_RESOURCES)
-    assert.equal(typeof rec.max_frame_bytes, 'number')
-    assert.equal(typeof rec.max_output_bytes, 'number')
-    assert.equal(typeof rec.timeout_ms, 'number')
-    assert.ok(await exists(rec.temp_dir), 'start() 后临时目录应已创建')
+    assert.equal(rec.market_conclusion, 'none')
+    assert.equal(rec.trust_scope, 'local-only')
+    assert.equal(rec.invocation_witness.worker_self_report_used, false)
+    assert.ok(await exists(rec.temp_dir))
 
     const outcome = await adapter.execute({
       request_id: 'req-echo-1',
@@ -70,35 +88,35 @@ test('echo：真实 spawn，worker started 通知不构成可信证据；observa
 
     assert.equal(outcome.admission_status, 'accepted')
     assert.equal(outcome.execution_status, 'completed')
+    // legacy control-protocol 没有 adapter 侧 OS 启动事实 → 永远 unknown。
     assert.equal(outcome.invocation_status, 'unknown')
     assert.equal(outcome.invocation_evidence_verified, false)
+    assert.equal(outcome.invocation_evidence, null)
+    assert.equal(outcome.started_at, null, '未知启动证据不得携带 started_at')
     assert.deepEqual(outcome.observations, [
       { observation_id: 'obs-1', value: { status_code: 200 }, source: 'worker', limitations: ['l1-subprocess'] },
     ])
     assert.deepEqual(outcome.reason_codes, [])
     assertNoVerdictKeys(outcome)
+    assert.equal(adapter.state, 'ready')
   } finally {
     await adapter.reap()
   }
 })
 
-test('error op：execution_status=error，worker started notification stays unverified/unknown', async () => {
-  const adapter = makeSubprocessAdapter({ workerEntry, runId: `err-${Date.now()}` })
+test('error op：execution_status=error，worker started 通知不产生启动见证', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: LEGACY_FIXTURE, runId: unique('err') })
   try {
     adapter.start()
     const outcome = await adapter.execute({
-      request_id: 'req-err-1',
-      run_id: 'run-err',
-      plan_id: 'plan-err',
-      test_id: 't-err',
-      attempt: 1,
-      input: { op: 'error' },
+      request_id: 'req-err-1', run_id: 'run-err', plan_id: 'plan-err',
+      test_id: 't-err', attempt: 1, input: { op: 'error' },
     })
     assert.equal(outcome.admission_status, 'accepted')
     assert.equal(outcome.execution_status, 'error')
-    assert.equal(outcome.invocation_status, 'unknown') // worker started frame is not trusted evidence
+    assert.equal(outcome.invocation_status, 'unknown')
     assert.equal(outcome.invocation_evidence_verified, false)
-    assert.deepEqual(outcome.observations, [])
+    assert.equal(outcome.invocation_evidence, null)
     assert.deepEqual(outcome.reason_codes, ['worker-error'])
     assertNoVerdictKeys(outcome)
   } finally {
@@ -106,36 +124,30 @@ test('error op：execution_status=error，worker started notification stays unve
   }
 })
 
-test('timeout：input.delay_ms 大 + 短 timeoutMs → deadline 终态，reap 后 pid 不存活', async () => {
-  const adapter = makeSubprocessAdapter({ workerEntry, runId: `timeout-${Date.now()}`, timeoutMs: 300 })
-  const { pid } = adapter.start()
+test('timeout：短 timeout + 长 delay → deadline 终态；reap 实测 pid 不存活且临时目录已删', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: LEGACY_FIXTURE, runId: unique('timeout'), timeoutMs: 300 })
   try {
+    adapter.start()
     const outcome = await adapter.execute({
-      request_id: 'req-to-1',
-      run_id: 'run-to',
-      plan_id: 'plan-to',
-      test_id: 't-to',
-      attempt: 1,
-      input: { op: 'sleep', delay_ms: 5000 },
+      request_id: 'req-to-1', run_id: 'run-to', plan_id: 'plan-to',
+      test_id: 't-to', attempt: 1, input: { op: 'sleep', delay_ms: 5000 },
     })
-    assert.equal(outcome.admission_status, 'accepted')
     assert.equal(outcome.execution_status, 'timeout')
-    assert.equal(outcome.invocation_status, 'unknown') // deadline 路径按契约固定 unknown
-    assert.deepEqual(outcome.observations, [])
+    assert.equal(outcome.invocation_status, 'unknown')
     assert.deepEqual(outcome.reason_codes, ['deadline'])
     assertNoVerdictKeys(outcome)
   } finally {
     const r = await adapter.reap()
-    assert.equal(r.pid_alive, false, '超时后 reap 应核验 pid 不存活')
+    assert.equal(r.pid_alive, false, '超时后 reap 应核验进程树无存活')
     assert.equal(r.temp_removed, true, '超时后回收应删除临时目录')
   }
 })
 
-test('bounded output：超出 maxOutputBytes 后拒绝响应并回收子进程', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'subprocess-oversize-'))
-  const noisyWorker = join(root, 'noisy-worker.mjs')
-  writeFileSync(noisyWorker, 'process.stdout.write("x".repeat(10000))\nsetInterval(() => {}, 1000)\n', 'utf8')
-  const adapter = makeSubprocessAdapter({ workerEntry: noisyWorker, runId: `oversize-${Date.now()}`, maxOutputBytes: 128 })
+test('bounded output：超出 maxOutputBytes 后拒绝并回收子进程', async (t) => {
+  const root = makeTempDir('testbed-oversize-')
+  cleanupDirs(t, [root])
+  const noisyWorker = writeWorkerScript(root, 'process.stdout.write("x".repeat(10000))\nsetInterval(() => {}, 1000)\n', 'noisy-worker.mjs')
+  const adapter = makeSubprocessAdapter({ workerEntry: noisyWorker, runId: unique('oversize'), maxOutputBytes: 128 })
   try {
     adapter.start()
     const outcome = await adapter.execute({
@@ -148,190 +160,274 @@ test('bounded output：超出 maxOutputBytes 后拒绝响应并回收子进程',
     assert.equal(outcome.invocation_status, 'unknown')
   } finally {
     await adapter.reap()
-    rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('reap()：pid 不存活 + 临时目录已删 + 幂等（不以退出码替代回收验收）', async () => {
-  const adapter = makeSubprocessAdapter({ workerEntry, runId: `reap-${Date.now()}` })
+test('reap()：幂等、实测 pid 不存活 + 临时目录已删（不以 exit code 替代验收）', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: LEGACY_FIXTURE, runId: unique('reap') })
   const { pid } = adapter.start()
   const tempDir = adapter.launchRecord.temp_dir
-  assert.ok(await exists(tempDir), 'start() 后临时目录应存在')
+  assert.ok(await exists(tempDir))
 
   const r1 = await adapter.reap()
   assert.equal(r1.pid_alive, false, `reap 后 pid=${pid} 应不存活`)
-  assert.equal(r1.temp_removed, true, 'reap 后临时目录应已删除')
+  assert.equal(r1.temp_removed, true)
 
-  // 幂等：二次 reap 结果一致，无副作用。
   const r2 = await adapter.reap()
   assert.equal(r2.pid_alive, false)
   assert.equal(r2.temp_removed, true)
+  assert.equal(adapter.state, 'reaped')
 })
 
-test('duplicate：同一 request_id 二次派发 → duplicate 拒绝（进程内串行）', async () => {
-  const adapter = makeSubprocessAdapter({ workerEntry, runId: `dup-${Date.now()}` })
+test('duplicate：同一 request_id 二次派发 → duplicate', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: LEGACY_FIXTURE, runId: unique('dup') })
   try {
     adapter.start()
     const req = {
-      request_id: 'req-dup-1',
-      run_id: 'run-dup',
-      plan_id: 'plan-dup',
-      test_id: 't-dup',
-      attempt: 1,
-      input: { op: 'echo', value: 1 },
+      request_id: 'req-dup-1', run_id: 'run-dup', plan_id: 'plan-dup',
+      test_id: 't-dup', attempt: 1, input: { op: 'echo', value: 1 },
     }
-    await adapter.execute(req) // 首次正常完成
-    const outcome = await adapter.execute(req) // 同一 request_id 再次派发
-    assert.equal(outcome.admission_status, 'accepted')
-    assert.equal(outcome.execution_status, 'error')
-    assert.deepEqual(outcome.reason_codes, ['duplicate'])
-    assert.deepEqual(outcome.observations, [])
-    assertNoVerdictKeys(outcome)
+    const first = await adapter.execute(req)
+    assert.equal(first.execution_status, 'completed')
+    const second = await adapter.execute(req)
+    assert.equal(second.execution_status, 'error')
+    assert.deepEqual(second.reason_codes, ['duplicate'])
+    assert.deepEqual(second.observations, [])
+    assert.equal(second.invocation_evidence, null)
+    assertNoVerdictKeys(second)
   } finally {
     await adapter.reap()
   }
 })
 
-const TOOL_SOURCE = 'export async function run(input) { return { status_code: input.status_code } }\n'
-const TOOL_DIGEST = `sha256:${createHash('sha256').update(TOOL_SOURCE).digest('hex')}`
-const CAPABILITY_REF = `cap-sha256:${'b'.repeat(64)}`
-const OWNER_DIGEST = `sha256:${'c'.repeat(64)}`
-
-function makePinnedToolCase(testId = 't.strict') {
-  const workspaceRoot = mkdtempSync(join(tmpdir(), 'subprocess-tool-'))
-  const artifactPath = join(workspaceRoot, 'tool.mjs')
-  writeFileSync(artifactPath, TOOL_SOURCE, 'utf8')
-  const manifest = {
-    schema_version: 'test-tool-manifest/v1',
-    tool_id: 'example.strict-probe',
-    tool_version: '1.0.0',
-    artifact_digest: TOOL_DIGEST,
-    role: 'probe',
-    tags: ['unit'],
-    runner: { adapter: 'local-worker-json', entrypoint: 'run' },
-    input_schema: {
-      $schema: 'https://json-schema.org/draft/2020-12/schema',
-      type: 'object', properties: { status_code: { type: 'integer' } },
-      required: ['status_code'], additionalProperties: false,
-    },
-    observation_schema: {
-      $schema: 'https://json-schema.org/draft/2020-12/schema',
-      type: 'object', properties: { status_code: { type: 'integer' } },
-      required: ['status_code'], additionalProperties: false,
-    },
-    requires: ['target:plugin'],
-    permissions: { filesystem: ['workspace:read'], network: [], subprocess: [], devices: [], secrets: [] },
-    limits: {
-      timeout_ms: 10000, cpu_ms: 5000, memory_mb: 128, processes: 1,
-      temp_bytes: 1048576, output_bytes: 1048576, attachment_bytes: 1048576, concurrency: 1,
-    },
-    determinism: 'deterministic',
-    retry: { safe: false, max_attempts: 1 },
-  }
-  const toolRef = { tool_id: manifest.tool_id, version: manifest.tool_version, artifact_digest: TOOL_DIGEST }
-  const targetRef = { kind: 'plugin', owner_put_digest: OWNER_DIGEST, origin: 'unit-test' }
-  const request = buildToolRequestFrame({
-    request_id: `req-${testId}`, run_id: 'run-strict', plan_id: 'plan-strict',
-    test_id: testId, attempt: 1, tool_ref: toolRef, target_ref: targetRef,
-    input: { status_code: 204 }, deadline: new Date(Date.now() + 8000).toISOString(),
-    capability_snapshot_ref: CAPABILITY_REF,
-  })
-  const adapter = makeSubprocessAdapter({
-    workerEntry, runId: `strict-${testId}-${Date.now()}`,
-    toolBindings: { [testId]: { manifest, artifactPath, workspaceRoot, toolRef } },
-    capabilitySnapshotRefs: { [testId]: CAPABILITY_REF },
-  })
-  return { adapter, request, workspaceRoot }
-}
-
-test('test-tool/v1：严格绑定响应相关字段；worker started 仅为通知，证据仍 unknown', async (t) => {
-  const pinned = makePinnedToolCase()
-  t.after(() => rmSync(pinned.workspaceRoot, { recursive: true, force: true }))
+test('unknown-version：未知协议版本在 adapter 侧拒绝，不派发', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: LEGACY_FIXTURE, runId: unique('version') })
   try {
-    pinned.adapter.start()
-    const outcome = await pinned.adapter.execute(pinned.request)
-    assert.equal(outcome.admission_status, 'accepted')
-    assert.equal(outcome.execution_status, 'completed', JSON.stringify(outcome))
-    assert.equal(outcome.invocation_status, 'unknown')
-    assert.equal(outcome.invocation_evidence_verified, false)
-    assert.deepEqual(outcome.observations, [{
-      observation_id: 'obs-1',
-      schema_ref: 'example.strict-probe@1.0.0#observation_schema',
-      value: { status_code: 204 },
-      source: 'worker',
-      limitations: [],
-    }])
-    assert.deepEqual(outcome.diagnostics, [])
-  } finally {
-    await pinned.adapter.reap()
-  }
-})
-
-test('test-tool/v1：worker preflight 拒绝无效 input，响应仍不证明 invocation started', async (t) => {
-  const pinned = makePinnedToolCase('t.preflight')
-  t.after(() => rmSync(pinned.workspaceRoot, { recursive: true, force: true }))
-  try {
-    pinned.adapter.start()
-    const outcome = await pinned.adapter.execute({ ...pinned.request, input: { status_code: '204' } })
-    assert.equal(outcome.admission_status, 'accepted')
+    adapter.start()
+    const outcome = await adapter.execute({
+      protocol_version: 'control-protocol/v9', request_id: 'req-v9', run_id: 'run-v9',
+      plan_id: 'plan-v9', test_id: 't-v9', attempt: 1, input: { op: 'echo' },
+    })
     assert.equal(outcome.execution_status, 'error')
+    assert.deepEqual(outcome.reason_codes, ['unknown-version'])
+    assert.equal(outcome.invocation_status, 'not-started')
+    assert.equal(outcome.invocation_evidence, null)
+  } finally {
+    await adapter.reap()
+  }
+})
+
+test('out-of-order：串行 in-flight 时第二个 execute 被拒绝且不影响第一个', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: LEGACY_FIXTURE, runId: unique('ooo') })
+  try {
+    adapter.start()
+    const first = adapter.execute({
+      request_id: 'req-ooo-1', run_id: 'run-ooo', plan_id: 'plan-ooo',
+      test_id: 't-1', attempt: 1, input: { op: 'sleep', delay_ms: 150 },
+    })
+    const second = await adapter.execute({
+      request_id: 'req-ooo-2', run_id: 'run-ooo', plan_id: 'plan-ooo',
+      test_id: 't-2', attempt: 1, input: { op: 'echo', value: 2 },
+    })
+    assert.equal(second.execution_status, 'error')
+    assert.deepEqual(second.reason_codes, ['out-of-order'])
+    const firstOutcome = await first
+    assert.equal(firstOutcome.execution_status, 'completed')
+  } finally {
+    await adapter.reap()
+  }
+})
+
+test('correlation-mismatch：worker response 回显错配 → 拒绝且无启动见证', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: WRONG_CORR_FIXTURE, runId: unique('corr') })
+  try {
+    adapter.start()
+    const outcome = await adapter.execute({
+      request_id: 'req-corr-1', run_id: 'run-corr', plan_id: 'plan-corr',
+      test_id: 't-corr', attempt: 1, input: { op: 'echo', value: { status: 'ok' } },
+    })
+    assert.equal(outcome.execution_status, 'error')
+    assert.deepEqual(outcome.reason_codes, ['correlation-mismatch'])
     assert.equal(outcome.invocation_status, 'unknown')
     assert.equal(outcome.invocation_evidence_verified, false)
-    assert.deepEqual(outcome.observations, [])
-    assert.deepEqual(outcome.diagnostics, ['tool-input-schema-invalid'])
   } finally {
-    await pinned.adapter.reap()
+    await adapter.reap()
   }
 })
 
-test('test-tool/v1：tool_ref 或 capability snapshot 不匹配时 adapter 拒绝派发', async (t) => {
-  const pinned = makePinnedToolCase('t.pin-mismatch')
-  t.after(() => rmSync(pinned.workspaceRoot, { recursive: true, force: true }))
+test('worker 自报 started_at：严格帧校验拒绝，invocation 保持 unknown', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: FAKE_TIMESTAMP_FIXTURE, runId: unique('fake-ts') })
   try {
-    pinned.adapter.start()
-    const badToolRef = await pinned.adapter.execute({
-      ...pinned.request,
-      request_id: 'req-wrong-tool-ref',
-      tool_ref: { ...pinned.request.tool_ref, artifact_digest: `sha256:${'d'.repeat(64)}` },
+    adapter.start()
+    const outcome = await adapter.execute({
+      request_id: 'req-fake-1', run_id: 'run-fake', plan_id: 'plan-fake',
+      test_id: 't-fake', attempt: 1, input: { op: 'echo', value: { status_code: 200 } },
     })
-    assert.equal(badToolRef.execution_status, 'error')
-    assert.equal(badToolRef.invocation_status, 'not-started')
-    assert.deepEqual(badToolRef.reason_codes, ['correlation-mismatch'])
-    assert.equal(badToolRef.invocation_evidence_verified, false)
-
-    const badCapability = await pinned.adapter.execute({
-      ...pinned.request,
-      request_id: 'req-wrong-capability',
-      capability_snapshot_ref: `cap-sha256:${'e'.repeat(64)}`,
-    })
-    assert.equal(badCapability.execution_status, 'error')
-    assert.equal(badCapability.invocation_status, 'not-started')
-    assert.deepEqual(badCapability.reason_codes, ['correlation-mismatch'])
-    assert.equal(badCapability.invocation_evidence_verified, false)
+    assert.equal(outcome.execution_status, 'error')
+    assert.deepEqual(outcome.reason_codes, ['unknown-field'])
+    assert.equal(outcome.invocation_status, 'unknown')
+    assert.equal(outcome.invocation_evidence, null)
   } finally {
-    await pinned.adapter.reap()
+    await adapter.reap()
   }
 })
 
-test('mixed host：strict tool request 后仍接受 legacy control-protocol/v1 request', async (t) => {
-  const pinned = makePinnedToolCase('t.mixed')
-  t.after(() => rmSync(pinned.workspaceRoot, { recursive: true, force: true }))
+test('worker started 帧 + 无 response：不产生启动见证，deadline 记 timeout', async (t) => {
+  const root = makeTempDir('testbed-started-only-')
+  cleanupDirs(t, [root])
+  const startedOnly = writeWorkerScript(root, `
+import { createInterface } from 'node:readline'
+const rl = createInterface({ input: process.stdin })
+rl.on('line', (line) => {
+  const f = JSON.parse(line)
+  process.stdout.write(JSON.stringify({
+    protocol_version: 'control-protocol/v1', kind: 'started',
+    request_id: f.request_id, run_id: f.run_id, plan_id: f.plan_id, test_id: f.test_id, attempt: f.attempt,
+  }) + '\\n')
+})
+`, 'started-only.mjs')
+  const adapter = makeSubprocessAdapter({ workerEntry: startedOnly, runId: unique('started-only'), timeoutMs: 350 })
   try {
-    pinned.adapter.start()
-    const strict = await pinned.adapter.execute(pinned.request)
-    assert.equal(strict.execution_status, 'completed')
-    assert.equal(strict.invocation_status, 'unknown')
-    assert.equal(strict.invocation_evidence_verified, false)
-
-    const legacy = await pinned.adapter.execute({
-      request_id: 'req-legacy-after-tool', run_id: 'run-legacy', plan_id: 'plan-legacy',
-      test_id: 't-legacy', attempt: 1, input: { op: 'echo', value: { status_code: 200 } },
+    adapter.start()
+    const outcome = await adapter.execute({
+      request_id: 'req-started-1', run_id: 'run-started', plan_id: 'plan-started',
+      test_id: 't-started', attempt: 1, input: { op: 'echo' },
     })
-    assert.equal(legacy.execution_status, 'completed')
-    assert.equal(legacy.invocation_status, 'unknown')
-    assert.equal(legacy.invocation_evidence_verified, false)
-    assert.deepEqual(legacy.observations[0].value, { status_code: 200 })
+    assert.equal(outcome.execution_status, 'timeout')
+    assert.equal(outcome.invocation_status, 'unknown', 'worker started 帧永远不是独立启动证据')
+    assert.equal(outcome.invocation_evidence_verified, false)
+    assert.equal(outcome.invocation_evidence, null)
+    assert.deepEqual(outcome.reason_codes, ['deadline'])
   } finally {
-    await pinned.adapter.reap()
+    await adapter.reap()
   }
+})
+
+test('非 JSON 杂音：adapter 拒绝 unknown-field，不采信任何后续内容', async (t) => {
+  const root = makeTempDir('testbed-noise-')
+  cleanupDirs(t, [root])
+  const noisy = writeWorkerScript(root, 'process.stdout.write("this is not json\\n")\n', 'noise.mjs')
+  const adapter = makeSubprocessAdapter({ workerEntry: noisy, runId: unique('noise') })
+  try {
+    adapter.start()
+    const outcome = await adapter.execute({
+      request_id: 'req-noise-1', run_id: 'run-noise', plan_id: 'plan-noise',
+      test_id: 't-noise', attempt: 1, input: { op: 'echo' },
+    })
+    assert.equal(outcome.execution_status, 'error')
+    assert.deepEqual(outcome.reason_codes, ['unknown-field'])
+    assert.equal(outcome.invocation_evidence, null)
+  } finally {
+    await adapter.reap()
+  }
+})
+
+test('test-tool/v1：严格 ToolResponse + adapter 侧独立启动见证', async (t) => {
+  const pinned = makePinnedToolCase()
+  t.after(async () => {
+    await pinned.adapter.reap()
+    cleanupDirs(t, [pinned.workspaceRoot])
+  })
+  pinned.adapter.start()
+
+  const outcome = await pinned.adapter.execute(pinned.request())
+  assert.equal(outcome.admission_status, 'accepted')
+  assert.equal(outcome.execution_status, 'completed', JSON.stringify(outcome))
+  assert.equal(outcome.invocation_status, 'started')
+  assert.equal(outcome.invocation_evidence_verified, true)
+  assert.ok(outcome.invocation_evidence, '必须有 adapter 侧 OS 启动见证')
+  assert.equal(outcome.invocation_evidence.kind, INVOCATION_START_KIND)
+  assert.equal(outcome.invocation_evidence.correlation.test_id, pinned.testId)
+  assert.deepEqual(outcome.observations, [{
+    observation_id: 'obs-1',
+    schema_ref: 'example.strict-probe@1.0.0#observation_schema',
+    value: { status_code: 204 },
+    source: 'worker',
+    limitations: [],
+  }])
+  assert.deepEqual(outcome.diagnostics, [])
+  assertNoVerdictKeys(outcome)
+})
+
+test('test-tool/v1：preflight 无效 input → spawn 前拒绝（not-started、无见证）', async (t) => {
+  const pinned = makePinnedToolCase({ testId: 't.preflight' })
+  t.after(async () => {
+    await pinned.adapter.reap()
+    cleanupDirs(t, [pinned.workspaceRoot])
+  })
+  pinned.adapter.start()
+  const outcome = await pinned.adapter.execute(pinned.request({ input: { status_code: '204' } }))
+  assert.equal(outcome.admission_status, 'accepted')
+  assert.equal(outcome.execution_status, 'error')
+  assert.equal(outcome.invocation_status, 'not-started', '派发前被 adapter admission 阻止 → 有证据的 not-started')
+  assert.equal(outcome.invocation_evidence_verified, false)
+  assert.equal(outcome.invocation_evidence, null)
+  assert.deepEqual(outcome.diagnostics, ['tool-input-schema-invalid'])
+  assert.equal(pinned.adapter.reportInvocationStart(undefined, 't.preflight', 1), null)
+})
+
+test('test-tool/v1：tool_ref / capability snapshot 不匹配时 adapter 拒绝且无见证', async (t) => {
+  const pinned = makePinnedToolCase({ testId: 't.pin-mismatch' })
+  t.after(async () => {
+    await pinned.adapter.reap()
+    cleanupDirs(t, [pinned.workspaceRoot])
+  })
+  pinned.adapter.start()
+
+  const badToolRef = await pinned.adapter.execute(pinned.request({
+    requestId: 'req-wrong-tool-ref',
+    toolRef: { ...pinned.toolRef, artifact_digest: `sha256:${'d'.repeat(64)}` },
+  }))
+  assert.equal(badToolRef.execution_status, 'error')
+  assert.equal(badToolRef.invocation_status, 'not-started')
+  assert.deepEqual(badToolRef.reason_codes, ['correlation-mismatch'])
+  assert.equal(badToolRef.invocation_evidence, null)
+
+  const badCapability = await pinned.adapter.execute(pinned.request({
+    requestId: 'req-wrong-capability',
+    capabilityRef: `cap-sha256:${'e'.repeat(64)}`,
+  }))
+  assert.equal(badCapability.execution_status, 'error')
+  assert.equal(badCapability.invocation_status, 'not-started')
+  assert.deepEqual(badCapability.reason_codes, ['correlation-mismatch'])
+  assert.equal(badCapability.invocation_evidence, null)
+})
+
+test('mixed：strict tool attempt 之后仍接受 legacy control-protocol/v1 request', async (t) => {
+  const pinned = makePinnedToolCase({ testId: 't.mixed' })
+  t.after(async () => {
+    await pinned.adapter.reap()
+    cleanupDirs(t, [pinned.workspaceRoot])
+  })
+  pinned.adapter.start()
+
+  const strict = await pinned.adapter.execute(pinned.request())
+  assert.equal(strict.execution_status, 'completed')
+  assert.equal(strict.invocation_status, 'started')
+
+  const legacy = await pinned.adapter.execute({
+    request_id: 'req-legacy-after-tool', run_id: 'run-legacy', plan_id: 'plan-legacy',
+    test_id: 't-legacy', attempt: 1, input: { op: 'echo', value: { status_code: 200 } },
+  })
+  assert.equal(legacy.execution_status, 'completed')
+  assert.equal(legacy.invocation_status, 'unknown')
+  assert.equal(legacy.invocation_evidence_verified, false)
+  assert.deepEqual(legacy.observations[0].value, { status_code: 200 })
+})
+
+test('没有 workerEntry：构造即 fail-closed', () => {
+  assert.throws(() => makeSubprocessAdapter({}), /workerEntry/)
+  assert.throws(() => makeSubprocessAdapter({ workerEntry: 'relative/worker.js' }), /absolute path/)
+})
+
+test('start() 前 execute：不派发，no-response/not-started', async () => {
+  const adapter = makeSubprocessAdapter({ workerEntry: LEGACY_FIXTURE, runId: unique('not-started') })
+  const outcome = await adapter.execute({
+    request_id: 'req-ns', run_id: 'run-ns', plan_id: 'plan-ns',
+    test_id: 't-ns', attempt: 1, input: { op: 'echo' },
+  })
+  assert.equal(outcome.execution_status, 'error')
+  assert.deepEqual(outcome.reason_codes, ['no-response'])
+  assert.equal(outcome.invocation_status, 'not-started')
+  assert.equal(outcome.invocation_evidence, null)
 })

@@ -284,3 +284,72 @@ test('pinTool: env 缺省 → null', () => {
   assert.equal(r.admission_stage, 'pinned')
   assert.equal(r.env, null)
 })
+// ---------------------------------------------------------------------------
+// 严格字段/枚举补充（tool_version 语义版本、runner 闭集、
+// evidence/compatibility 可选但必须是对象；tags 类型受检）
+// ---------------------------------------------------------------------------
+
+test('manifest: tags 缺失仅告警（M5 兼容），出现时必须是非空字符串数组', () => {
+  const missing = validateToolManifest(makeManifest({ tags: undefined }))
+  assert.equal(missing.admission_stage, 'validated')
+  assert.ok(missing.warnings.includes('missing-required-field:tags'))
+
+  assert.equal(validateToolManifest(makeManifest({ tags: 'contract' })).admission_stage, 'draft')
+  assert.equal(validateToolManifest(makeManifest({ tags: [''] })).admission_stage, 'draft')
+  assert.equal(validateToolManifest(makeManifest({ tags: [1] })).admission_stage, 'draft')
+  assert.equal(validateToolManifest(makeManifest({ tags: ['contract', 'smoke'] })).ok, true)
+})
+
+test('manifest: tool_version 必须是语义版本（拒绝浮动/非法版本）', () => {
+  for (const value of ['1.0', 'latest', 'v1.0.0', 'main', '1.0.0.0']) {
+    const result = validateToolManifest(makeManifest({ tool_version: value }))
+    assert.equal(result.ok, false, value)
+    assert.ok(result.errors.includes('tool-version-invalid'), value)
+  }
+  for (const value of ['0.0.0', '1.2.3', '1.0.0-beta.1', '1.0.0+build.5']) {
+    assert.equal(validateToolManifest(makeManifest({ tool_version: value })).ok, true, value)
+  }
+})
+
+test('manifest: runner 是闭集，未知字段拒绝', () => {
+  const result = validateToolManifest(makeManifest({
+    runner: { adapter: 'local-worker-json', entrypoint: 'run', extra: 'x' },
+  }))
+  assert.equal(result.ok, false)
+  assert.ok(result.errors.includes('runner-unknown-field:extra'))
+})
+
+test('manifest: evidence/compatibility 可选，但出现时必须是对象', () => {
+  assert.equal(validateToolManifest(makeManifest({ evidence: { kind: 'log' }, compatibility: { node: '>=20' } })).ok, true)
+  assert.equal(validateToolManifest(makeManifest({ evidence: 'log' })).ok, false)
+  assert.equal(validateToolManifest(makeManifest({ compatibility: ['node'] })).ok, false)
+})
+
+test('manifest: 声明式 schema 与可执行校验一致', async () => {
+  const { validateValue } = await import('../../../src/protocol/jsonschema.js')
+  const { TEST_TOOL_MANIFEST_V1_SCHEMA } = await import('../../../src/protocol/schemas.js')
+  const valid = makeManifest()
+  assert.equal(validateValue(valid, TEST_TOOL_MANIFEST_V1_SCHEMA).ok, true)
+  assert.equal(validateToolManifest(valid).ok, true)
+
+  const noTags = makeManifest()
+  delete noTags.tags
+  assert.equal(validateValue(noTags, TEST_TOOL_MANIFEST_V1_SCHEMA).ok, true)
+  assert.equal(validateToolManifest(noTags).ok, true)
+  assert.ok(validateToolManifest(noTags).warnings.includes('missing-required-field:tags'))
+
+  const badRole = makeManifest({ role: 'assertion' })
+  assert.equal(validateValue(badRole, TEST_TOOL_MANIFEST_V1_SCHEMA).ok, false)
+  assert.equal(validateToolManifest(badRole).ok, false)
+
+  const badVersion = makeManifest({ tool_version: 'v1' })
+  assert.equal(validateValue(badVersion, TEST_TOOL_MANIFEST_V1_SCHEMA).ok, false)
+  assert.equal(validateToolManifest(badVersion).ok, false)
+
+  // Namespaced extension candidates stay warnings in the executable validator;
+  // the declarative schema does not reject them (§8.4.1 extension rule).
+  const extension = makeManifest({ 'example.com/feature': true })
+  assert.equal(validateValue(extension, TEST_TOOL_MANIFEST_V1_SCHEMA).ok, true)
+  assert.equal(validateToolManifest(extension).ok, true)
+  assert.ok(validateToolManifest(extension).warnings.includes('unknown-top-level-field:example.com/feature'))
+})

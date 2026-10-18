@@ -1,0 +1,219 @@
+{
+  "schema_version": "cordis-contract-suite/v1",
+  "suite_id": "cordis-runtime-contract",
+  "suite_version": "1.0.0",
+  "runtime_anchor_digest": "sha256:e719ae0fa9ada99ee863140c75a0ea2f9cea4c1e361c3df249b4555785520315",
+  "catalog_ref": {
+    "id": "cordis-runtime-api-catalog",
+    "version": "1.0.0",
+    "digest": "sha256:c75bd776e3f9a655c68345a06f3ebf10beb6516d2bc7bda73801b90ab02e8e83"
+  },
+  "cases": [
+    {
+      "case_id": "runtime.module-identity",
+      "area": "runtime",
+      "required": true,
+      "actions": [
+        "import the exact anchor entry as an ES module",
+        "check the exported Cordis class surface and construct a root Context",
+        "load tests/fixtures/fake-cordis-stub.mjs and probe the same surface"
+      ],
+      "expected": [
+        "the real package exports Context, Fiber, Service, EventsService, RegistryService, CordisError and ValidationError",
+        "Context.is() recognises a constructed root context with registry/events services",
+        "the fake-cordis-stub does not satisfy that surface, so it cannot be substituted for the locked runtime"
+      ],
+      "evidence_kind": "assertion"
+    },
+    {
+      "case_id": "context.events-dispatch",
+      "area": "events",
+      "required": true,
+      "actions": [
+        "register ordered listeners with ctx.on while a fiber is active",
+        "dispatch with ctx.emit, ctx.bail, ctx.serial, ctx.parallel and ctx.waterfall",
+        "dispose the owning fiber and dispatch again"
+      ],
+      "expected": [
+        "emit invokes every listener synchronously in registration order",
+        "bail/serial stop at the first non-null bail value",
+        "parallel awaits every listener",
+        "waterfall composes listeners around the final next callback",
+        "disposing the owner removes every listener"
+      ],
+      "evidence_kind": "assertion+trace"
+    },
+    {
+      "case_id": "context.service-registry",
+      "area": "context",
+      "required": true,
+      "actions": [
+        "load plugins through ctx.plugin and await their fibers",
+        "provide a service with ctx.provide and read it with ctx.get",
+        "inspect ctx.registry by keys/values/entries and delete a runtime",
+        "attempt a duplicate ctx.provide"
+      ],
+      "expected": [
+        "every awaited plugin is ACTIVE and registered exactly once",
+        "ctx.get returns the exact provided value",
+        "registry.size/has/get/keys/entries reflect live runtimes",
+        "registry.delete disposes the owning fiber and removes the runtime",
+        "a duplicate provide is rejected"
+      ],
+      "evidence_kind": "assertion"
+    },
+    {
+      "case_id": "service.isolation",
+      "area": "service",
+      "required": true,
+      "actions": [
+        "provide the same service name in the root context and two ctx.isolate() scopes",
+        "load a consumer that declares inject: ['isolated']",
+        "dispose the provider and read the consumer state again"
+      ],
+      "expected": [
+        "each isolation scope resolves its own service value",
+        "the consumer starts only while the injected service exists",
+        "provider disposal parks the consumer in PENDING and runs its cleanup",
+        "provider re-registration returns the consumer to ACTIVE"
+      ],
+      "evidence_kind": "assertion"
+    },
+    {
+      "case_id": "fiber.lifecycle",
+      "area": "fiber",
+      "required": true,
+      "actions": [
+        "create a fiber whose inject cannot resolve, then provide the service",
+        "observe internal/status transitions",
+        "dispose the fiber and await the disposer",
+        "call restart() and effect() after disposal"
+      ],
+      "expected": [
+        "state starts at PENDING (0) and reaches ACTIVE (2) only after the dependency exists",
+        "disposal emits UNLOADING (5) then DISPOSED (4) and clears uid",
+        "the disposed fiber cannot restart or create effects (INACTIVE_EFFECT)",
+        "dispose is idempotent"
+      ],
+      "evidence_kind": "trace"
+    },
+    {
+      "case_id": "fiber.failure-recovery",
+      "area": "fiber",
+      "required": true,
+      "actions": [
+        "load a plugin that throws during LOADING",
+        "await the fiber and inspect the FAILED state",
+        "call restart() on the failed fiber",
+        "observe the locked version's actual restart result"
+      ],
+      "expected": [
+        "startup failure rejects await() with the original error",
+        "internal/status records LOADING -> UNLOADING -> FAILED",
+        "restart() re-executes the plugin and reaches ACTIVE",
+        "the locked version's restart() promise behavior is recorded verbatim"
+      ],
+      "evidence_kind": "trace"
+    },
+    {
+      "case_id": "fiber.effects-resource-release",
+      "area": "fiber",
+      "required": true,
+      "actions": [
+        "register sync, async and returned-disposer effects on one fiber",
+        "read getEffects() metadata",
+        "dispose the fiber and observe disposer ordering",
+        "abort an AbortController from a disposer"
+      ],
+      "expected": [
+        "labeled effects appear in getEffects()",
+        "disposers run in reverse registration order and async disposers are awaited",
+        "returned plugin disposers run before effect disposers",
+        "the abort signal is aborted and no resource survives disposal"
+      ],
+      "evidence_kind": "assertion"
+    },
+    {
+      "case_id": "loader.dynamic-entries",
+      "area": "loader",
+      "required": true,
+      "actions": [
+        "mount the real cordis-plugin-loader service",
+        "create a loader entry for a real ESM plugin module by file URL",
+        "update its config and remove the entry"
+      ],
+      "expected": [
+        "loader.create imports and activates the plugin",
+        "loader.update restarts the entry with the new config",
+        "loader.remove stops and unloads the entry and its service",
+        "the loader entry list is empty after removal"
+      ],
+      "evidence_kind": "assertion"
+    },
+    {
+      "case_id": "loader.group-entries",
+      "area": "loader",
+      "required": true,
+      "actions": [
+        "register the real Group class as the cordis:group builtin",
+        "create a group entry containing a nested plugin entry",
+        "remove the group entry"
+      ],
+      "expected": [
+        "the nested entry activates and provides its own service",
+        "the group is listed as a group entry carrier",
+        "removing the group disposes the nested entry and its service"
+      ],
+      "evidence_kind": "assertion"
+    },
+    {
+      "case_id": "timer.disposal",
+      "area": "timer",
+      "required": true,
+      "actions": [
+        "mount the real cordis-plugin-timer service",
+        "start an interval and a pending timeout from a plugin that injects timer",
+        "dispose the plugin fiber"
+      ],
+      "expected": [
+        "interval ticks while the fiber is active",
+        "disposal clears the interval (no further ticks) and the pending timeout never fires"
+      ],
+      "evidence_kind": "assertion"
+    },
+    {
+      "case_id": "dynamic-runner.define-run-stop-undefine",
+      "area": "dynamic-runner",
+      "required": true,
+      "actions": [
+        "mount the real @deepseek-ai/dsh-cordis-host-runner service on a real Cordis context",
+        "define a host-half dynamic package",
+        "run it, stop it, stop it again, undefine it"
+      ],
+      "expected": [
+        "define mints a plugin/package identity with hasHostHalf=true",
+        "run executes the sandboxed host half and provides its service",
+        "stop disposes the host fiber, released its service and effect resources",
+        "a second stop reports not-running",
+        "undefine removes the plugin and inventory becomes empty"
+      ],
+      "evidence_kind": "trace"
+    },
+    {
+      "case_id": "dynamic-runner.error-and-cancel",
+      "area": "dynamic-runner",
+      "required": true,
+      "actions": [
+        "run a dynamic host half that throws",
+        "run a package with an already-aborted AbortSignal",
+        "stop and undefine the failed plugin"
+      ],
+      "expected": [
+        "a throwing host half returns host-half-failed with a diagnostic",
+        "an aborted run returns cancelled without creating a fiber",
+        "stop/undefine clean up failed state and report plugin-missing or not-running afterwards"
+      ],
+      "evidence_kind": "trace"
+    }
+  ]
+}

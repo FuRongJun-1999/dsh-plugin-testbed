@@ -1,0 +1,229 @@
+{
+  "baseline_source": "pre-migration JavaScript implementation (HEAD fc6d2c8 + working tree)",
+  "node_version": "v24.21.0",
+  "enums": {
+    "RUN_STATUS": [
+      "queued",
+      "running",
+      "completed",
+      "cancelled",
+      "blocked"
+    ],
+    "ADMISSION_STATUS": [
+      "accepted",
+      "rejected"
+    ],
+    "EXECUTION_STATUS": [
+      "completed",
+      "skipped",
+      "error",
+      "timeout",
+      "cancelled"
+    ],
+    "INVOCATION_STATUS": [
+      "not-started",
+      "started",
+      "unknown"
+    ],
+    "VERDICT": [
+      "pass",
+      "fail",
+      "skip",
+      "error",
+      "inconclusive"
+    ],
+    "GATE_DECISION": [
+      "pass",
+      "reject",
+      "blocked"
+    ],
+    "CAPABILITY_CLAIM": [
+      "declared",
+      "not-declared"
+    ],
+    "CAPABILITY_OBSERVED": [
+      "present",
+      "absent",
+      "unknown"
+    ],
+    "CAPABILITY_VERIFICATION": [
+      "corroborated",
+      "contradicted",
+      "not-run"
+    ],
+    "TOOL_ADMISSION_STAGE": [
+      "draft",
+      "validated",
+      "pinned"
+    ],
+    "TOOL_ATTEMPT_STAGE": [
+      "prepared",
+      "running",
+      "completed",
+      "skipped",
+      "error",
+      "timeout",
+      "cancelled"
+    ],
+    "TOOL_ROLE": [
+      "probe",
+      "fixture",
+      "transform"
+    ],
+    "TOOL_PERMISSION_KEYS": [
+      "filesystem",
+      "network",
+      "subprocess",
+      "devices",
+      "secrets"
+    ],
+    "DETERMINISM_VALUES": [
+      "deterministic",
+      "seeded",
+      "environment-bound",
+      "best-effort"
+    ],
+    "OBSERVATION_SOURCE": [
+      "local",
+      "worker",
+      "control-plane",
+      "archive"
+    ],
+    "TEST_CLASSIFICATION": [
+      "required",
+      "optional",
+      "not-applicable"
+    ],
+    "KNOWN_SCHEMA_VERSIONS": [
+      "receipt/v1",
+      "run-spec/v1",
+      "gate-policy/v1",
+      "plan-candidate/v1",
+      "plan/v1",
+      "test-tool-manifest/v1"
+    ],
+    "TRUST_SCOPE": [
+      "local-only"
+    ],
+    "EXIT_CODE_PROFILES": [
+      "local-selfcheck/v1",
+      "market-required/v1"
+    ]
+  },
+  "version_constants": {
+    "RECEIPT_SCHEMA_VERSION": "receipt/v1",
+    "TEST_TOOL_MANIFEST_VERSION": "test-tool-manifest/v1",
+    "TEST_TOOL_PROTOCOL_VERSION": "test-tool/v1",
+    "RUN_SPEC_VERSION": "run-spec/v1",
+    "GATE_POLICY_VERSION": "gate-policy/v1",
+    "PLAN_CANDIDATE_VERSION": "plan-candidate/v1",
+    "PLAN_VERSION": "plan/v1"
+  },
+  "receipt_vectors": {
+    "fixed_vector_digest": "sha256:c3b6ee97857bfdb5a83d46fc51aec09e9fb82e6da82a2e21d6101329d88cc2fb",
+    "fixed_vector_recomputed": "sha256:c3b6ee97857bfdb5a83d46fc51aec09e9fb82e6da82a2e21d6101329d88cc2fb",
+    "canonical_example_record_digest": "sha256:c28a29574bccf3ca41c6b040bdb75200c047ceb61c31feb1dbc525f5b772d9b6",
+    "canonical_example_canonical_json_digest": "sha256:d7daaebcc5c4e8daa946f3b8efd2d711be729296612b0fbd57f11f505e137989",
+    "canonical_example_canonical_json_bytes": 2907
+  },
+  "schema_vectors": {
+    "RECEIPT_V1_SCHEMA": {
+      "canonical_digest": "sha256:912a9e49026a55d2827fc6a309d3b9a66d552ea6c4078eeb7e611a35b0a14cb2",
+      "canonical_bytes": 11533
+    },
+    "RUN_SPEC_V1_SCHEMA": {
+      "canonical_digest": "sha256:94301737a285319d8f7cdb8de111b57f5609ead20feab6d496a2edd843dfca98",
+      "canonical_bytes": 3538
+    },
+    "GATE_POLICY_V1_SCHEMA": {
+      "canonical_digest": "sha256:b87634b14db38a609def1055f2557ace4aa2e3c35d7f6cc5c83884d22e99c8c0",
+      "canonical_bytes": 1349
+    },
+    "PLAN_CANDIDATE_V1_SCHEMA": {
+      "canonical_digest": "sha256:4aec5fe42af8a730baded893c3a64d3f9d50015b432158fc7cd18f0bcf3b8946",
+      "canonical_bytes": 680
+    },
+    "PLAN_V1_SCHEMA": {
+      "canonical_digest": "sha256:9362334a4794572f8041d275c2bf4097582804a20931a54be0cfbc4667a5728d",
+      "canonical_bytes": 1188
+    },
+    "TEST_TOOL_MANIFEST_V1_SCHEMA": {
+      "canonical_digest": "sha256:8d74a2370b3648e7cc261aa63f9483d0174792cd85b72aa91060fd5c76155fc0",
+      "canonical_bytes": 2481
+    },
+    "TEST_TOOL_REQUEST_V1_SCHEMA": {
+      "canonical_digest": "sha256:b4c5c4f0e14bca789eba9a6c9c906c2662c207c713ebbcedb9e16bc6c7310495",
+      "canonical_bytes": 1378
+    },
+    "TEST_TOOL_RESPONSE_V1_SCHEMA": {
+      "canonical_digest": "sha256:d950f22b2f06cc003fdcdbda09fd30490d608537fd8487225d0bcdb4967f661c",
+      "canonical_bytes": 1667
+    }
+  },
+  "schema_registry": {
+    "receipt/v1": "sha256:912a9e49026a55d2827fc6a309d3b9a66d552ea6c4078eeb7e611a35b0a14cb2",
+    "run-spec/v1": "sha256:94301737a285319d8f7cdb8de111b57f5609ead20feab6d496a2edd843dfca98",
+    "gate-policy/v1": "sha256:b87634b14db38a609def1055f2557ace4aa2e3c35d7f6cc5c83884d22e99c8c0",
+    "plan-candidate/v1": "sha256:4aec5fe42af8a730baded893c3a64d3f9d50015b432158fc7cd18f0bcf3b8946",
+    "plan/v1": "sha256:9362334a4794572f8041d275c2bf4097582804a20931a54be0cfbc4667a5728d",
+    "test-tool-manifest/v1": "sha256:8d74a2370b3648e7cc261aa63f9483d0174792cd85b72aa91060fd5c76155fc0"
+  },
+  "projection_vectors": {
+    "receipt_record_digest": "sha256:b2a470d7452f78e2d6d9b1c567dc47f291e6ea71acc5da87cf7dcacd42f94526",
+    "formats": {
+      "junit": {
+        "format_version": "junit/v1",
+        "source_receipt_digest": "sha256:b2a470d7452f78e2d6d9b1c567dc47f291e6ea71acc5da87cf7dcacd42f94526",
+        "exporter_id": "migration-baseline",
+        "body_digest": "sha256:ee3bff85a40734b94ada36c3d54d5a11431e43de5d764c198cfffeb6314c6927",
+        "body_bytes": 4046
+      },
+      "tap": {
+        "format_version": "tap/v1",
+        "source_receipt_digest": "sha256:b2a470d7452f78e2d6d9b1c567dc47f291e6ea71acc5da87cf7dcacd42f94526",
+        "exporter_id": "migration-baseline",
+        "body_digest": "sha256:981d58419ab842201165e15a97e36208996d83f1471d51cbd49c6f97b929d845",
+        "body_bytes": 413
+      },
+      "html": {
+        "format_version": "html/v1",
+        "source_receipt_digest": "sha256:b2a470d7452f78e2d6d9b1c567dc47f291e6ea71acc5da87cf7dcacd42f94526",
+        "exporter_id": "migration-baseline",
+        "body_digest": "sha256:35d6637bc99dad43fda94a643849bb76e2d07236c34e950fe4a81f46ead280c5",
+        "body_bytes": 2815
+      },
+      "ci-summary": {
+        "format_version": "ci-summary/v1",
+        "source_receipt_digest": "sha256:b2a470d7452f78e2d6d9b1c567dc47f291e6ea71acc5da87cf7dcacd42f94526",
+        "exporter_id": "migration-baseline",
+        "body_digest": "sha256:5c433876b425995bf5cacfd415874b263283681fc3aecb756e29d199c2860e9f",
+        "body_bytes": 296
+      }
+    }
+  },
+  "exit_matrix": {
+    "pass:local-selfcheck/v1": 0,
+    "reject:local-selfcheck/v1": 1,
+    "blocked:local-selfcheck/v1": 2,
+    "tampered:local-selfcheck/v1": 3,
+    "pass:market-required/v1": 2,
+    "blocked:market-required/v1": 2,
+    "write-failure": 3,
+    "unknown-profile": 3,
+    "invalid-input": 3
+  },
+  "cli_exit_codes": {
+    "usage:no-args": {
+      "status": 3,
+      "signal": null
+    },
+    "usage:project-without-receipt": {
+      "status": 3,
+      "signal": null
+    },
+    "selfcheck:cli-smoke": {
+      "status": 2,
+      "signal": null
+    }
+  }
+}

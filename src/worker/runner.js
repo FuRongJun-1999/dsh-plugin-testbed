@@ -15,16 +15,53 @@ import { validateValue } from '../protocol/jsonschema.js'
 import { EXECUTION_STATUS, TEST_TOOL_PROTOCOL_VERSION } from '../protocol/enums.js'
 import { assertToolRequest, assertToolResponse, MAX_FRAME_BYTES } from '../protocol/transport.js'
 import { pinTool, validateToolManifest } from '../protocol/tool-manifest.js'
+import { minimalChildEnvironment } from './environment.js'
+import { boundObservationValue, redactText, truncateUtf8, MAX_OBSERVATION_BYTES } from './observe.js'
 
 export const LOCAL_WORKER_JSON_ADAPTER = 'local-worker-json'
 export const LOCAL_WORKER_JSON_ENTRYPOINT = 'run'
 export const RUNNER_CHILD_ARG = '--local-worker-json-child'
+/**
+ * Cleanup coordination marker written by the **trusted runner** to the host's
+ * stderr (never to the protocol stdout). The adapter consumes it only to track
+ * the tool child pid for process-tree reaping — it is *not* invocation-start
+ * evidence, not a protocol frame, and tool code cannot write it (tool code runs
+ * in the grandchild, whose stderr is drained inside the host).
+ */
+export const RUNNER_CHILD_CLEANUP_MARKER = '[dsh-testbed-cleanup]'
+
+/**
+ * Parent-death channel: the runner host writes the single protocol line to the
+ * child's stdin but **never ends the stream while the attempt is in flight**.
+ * The child treats stdin `end`/`close` as "parent gone" and self-terminates. If
+ * the host is killed (cancel/crash/`taskkill` of the process tree), the OS closes
+ * the pipe and a re-parented tool grandchild cannot survive as an orphan — even
+ * if `taskkill /T` missed it. No protocol data is read after the one line; this
+ * is defense-in-depth for the L1 reaper, not an evidence channel.
+ */
+
+// Only the fixed worker host owns the adapter-facing stderr channel; direct
+// in-process use (unit tests importing this module) must not emit markers.
+const IS_WORKER_HOST_PROCESS = typeof process.argv[1] === 'string' &&
+  /(?:^|[\\/])worker[\\/]host\.js$/.test(process.argv[1])
+
+function emitChildCleanupMarker(event, pid) {
+  if (!IS_WORKER_HOST_PROCESS) return
+  if (!Number.isSafeInteger(pid) || pid < 1) return
+  try {
+    process.stderr.write(`${RUNNER_CHILD_CLEANUP_MARKER} ${event} pid=${pid}\n`)
+  } catch {
+    /* diagnostics-only channel: never fail the run because stderr is gone */
+  }
+}
 export const MAX_OUTPUT_BYTES = 1024 * 1024
 export const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
 export const MAX_TIMEOUT_MS = 5 * 60 * 1000
 export const MAX_OBSERVATIONS = 64
-export const MAX_OBSERVATION_BYTES = 512 * 1024
 export const MAX_DIAGNOSTIC_BYTES = 64 * 1024
+// One observation value budget; re-exported from the assembly module so callers
+// and tests see a single limit.
+export { MAX_OBSERVATION_BYTES }
 
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/
 const TOOL_REF_KEYS = ['tool_id', 'version', 'artifact_digest']
@@ -155,33 +192,29 @@ function normalizeResult(raw, manifest, outputLimit) {
   const ownDiagnostics = []
   const safeObservations = observations.map((item, index) => {
     const src = isObject(item) ? item : { value: item }
-    const valueText = json(src.value ?? null)
-    let value = src.value ?? null
     const limitations = Array.isArray(src.limitations)
-      ? src.limitations.filter((x) => typeof x === 'string').slice(0, 32).map((x) => x.slice(0, 128))
+      ? src.limitations.filter((x) => typeof x === 'string').slice(0, 32)
+        .map((x) => truncateUtf8(redactText(x), 128).text)
       : []
-    if (valueText === null) {
-      value = null
-      limitations.push('value-not-serializable')
-      ownDiagnostics.push('observation-value-not-serializable')
-    } else if (bytes(valueText) > MAX_OBSERVATION_BYTES) {
-      value = { digest: digest(Buffer.from(valueText)), size_bytes: bytes(valueText) }
-      limitations.push('value-summarized')
-      ownDiagnostics.push('observation-value-summarized')
-    }
-    const schemaResult = validateValue(value, manifest.observation_schema)
+    // Redact inside the worker before anything is framed; summarize oversize.
+    const bounded = boundObservationValue(src.value ?? null, { maxBytes: MAX_OBSERVATION_BYTES })
+    limitations.push(...bounded.limitations)
+    if (bounded.limitations.includes('value-summarized')) ownDiagnostics.push('observation-value-summarized')
+    if (bounded.limitations.includes('value-redacted')) ownDiagnostics.push('observation-value-redacted')
+    if (bounded.limitations.includes('value-truncated')) ownDiagnostics.push('observation-value-truncated')
+    const schemaResult = validateValue(bounded.value, manifest.observation_schema)
     if (!schemaResult.ok) {
       limitations.push('observation-schema-invalid')
       ownDiagnostics.push('observation-schema-invalid')
     }
     return {
       observation_id: typeof src.observation_id === 'string' && src.observation_id.length > 0
-        ? src.observation_id.slice(0, 256)
+        ? truncateUtf8(redactText(src.observation_id), 256).text
         : `obs-${index + 1}`,
       schema_ref: typeof src.schema_ref === 'string' && src.schema_ref.length > 0
-        ? src.schema_ref.slice(0, 512)
+        ? truncateUtf8(redactText(src.schema_ref), 512).text
         : observationSchemaRef(manifest),
-      value,
+      value: bounded.value,
       source: 'worker',
       limitations: [...new Set(limitations)],
     }
@@ -207,7 +240,8 @@ function normalizeResult(raw, manifest, outputLimit) {
 }
 
 function childEnvironment() {
-  return Object.freeze({ NODE_NO_WARNINGS: '1' })
+  // No ambient credentials: only allowlisted OS keys + NODE_NO_WARNINGS.
+  return minimalChildEnvironment(process.env)
 }
 
 function terminate(child) {
@@ -216,12 +250,14 @@ function terminate(child) {
   force.unref?.()
 }
 
-async function executeSnapshot({ artifactBytes, artifactDigest, input, timeoutMs, outputLimit, signal, onStarted }) {
+async function executeSnapshot({ artifactBytes, artifactDigest, input, timeoutMs, outputLimit, workspaceRoot, signal, onStarted }) {
   const childEntry = fileURLToPath(import.meta.url)
   let child
   try {
     child = spawn(process.execPath, [childEntry, RUNNER_CHILD_ARG], {
+      // Fixed entry + argument array; never a shell string (architecture §8.4).
       shell: false,
+      cwd: workspaceRoot ?? process.cwd(),
       env: childEnvironment(),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
@@ -240,6 +276,9 @@ async function executeSnapshot({ artifactBytes, artifactDigest, input, timeoutMs
       settled = true
       if (timer) clearTimeout(timer)
       signal?.removeEventListener('abort', abort)
+      // Release the parent side of the stdin parent-death channel once the
+      // outcome is settled; the child has already exited (or is being terminated).
+      try { child?.stdin?.destroy() } catch { /* already closed */ }
       resolveResult(value)
     }
     const stop = (reason, status = 'error') => {
@@ -263,6 +302,7 @@ async function executeSnapshot({ artifactBytes, artifactDigest, input, timeoutMs
     })
     child.on('error', () => finish(failed ?? { ok: false, reason: 'tool-spawn-failed', execution_status: 'error' }))
     child.on('close', (code) => {
+      emitChildCleanupMarker('child_exit', child.pid)
       if (failed) return finish(failed)
       if (code !== 0) return finish({ ok: false, reason: 'tool-process-error', execution_status: 'error' })
       let payload
@@ -281,8 +321,13 @@ async function executeSnapshot({ artifactBytes, artifactDigest, input, timeoutMs
     const inputLimit = MAX_ARTIFACT_BYTES * 2 + MAX_FRAME_BYTES
     if (inputText === null || bytes(inputText) > inputLimit) return stop('tool-input-oversize')
     child.once('spawn', () => {
+      // Cleanup metadata only: lets the adapter track this grandchild pid for
+      // process-tree reaping. It is *not* invocation-start evidence.
+      emitChildCleanupMarker('child_spawn', child.pid)
       Promise.resolve().then(() => onStarted?.()).then(() => {
-        if (!settled) child.stdin.end(inputText + '\n')
+        // Keep stdin open while the attempt runs: EOF is the child's parent-death
+        // signal. The stream is destroyed when the attempt settles.
+        if (!settled) child.stdin.write(inputText + '\n')
       }).catch(() => stop('tool-start-notification-failed'))
     })
   })
@@ -317,6 +362,13 @@ export async function runToolRequest({ request, binding, expectedCapabilitySnaps
   }
   const manifestCheck = validateToolManifest(binding.manifest)
   if (!manifestCheck.ok) return makeResponse(request, { diagnostics: ['tool-manifest-invalid'] })
+  // Request boundary: input must be bounded JSON before it reaches the runner.
+  if (json(request.input) === null || Buffer.byteLength(json(request.input), 'utf8') > MAX_FRAME_BYTES) {
+    return makeResponse(request, { diagnostics: ['tool-input-not-serializable'] })
+  }
+  if (typeof binding.workspaceRoot !== 'string' || !isAbsolute(binding.workspaceRoot)) {
+    return makeResponse(request, { diagnostics: ['tool-workspace-invalid'] })
+  }
   const inputCheck = validateValue(request.input, binding.manifest.input_schema)
   if (!inputCheck.ok) return makeResponse(request, { diagnostics: ['tool-input-schema-invalid'] })
 
@@ -340,6 +392,7 @@ export async function runToolRequest({ request, binding, expectedCapabilitySnaps
     input: request.input,
     timeoutMs,
     outputLimit,
+    workspaceRoot: binding.workspaceRoot,
     signal,
     onStarted,
   })
@@ -361,14 +414,42 @@ export async function runToolRequest({ request, binding, expectedCapabilitySnaps
 }
 
 async function runChild() {
+  // Parent-death guard: the runner host keeps stdin open for the whole attempt
+  // and is the only writer. EOF/close therefore means the host died (cancel,
+  // crash, `taskkill` of the tree): the tool grandchild must not outlive it.
+  let finished = false
+  const onParentGone = () => {
+    if (finished) return
+    finished = true
+    process.exit(0)
+  }
+  process.stdin.on('end', onParentGone)
+  process.stdin.on('close', onParentGone)
+  process.stdin.on('error', onParentGone)
+  const finishChild = (payload, code) => {
+    if (finished) return
+    finished = true
+    try { process.stdin.destroy() } catch { /* already closed */ }
+    try {
+      process.stdout.write(`${JSON.stringify(payload)}\n`, () => {
+        process.exitCode = code
+      })
+    } catch {
+      process.exitCode = 1
+    }
+  }
+
   const rl = createInterface({ input: process.stdin })
   let line = null
   try {
-    for await (const item of rl) {
-      if (line === null) line = item
-      else throw new Error('multiple inputs')
-      if (bytes(line) > MAX_ARTIFACT_BYTES * 2 + MAX_FRAME_BYTES) throw new Error('input oversize')
-    }
+    line = await new Promise((resolve, reject) => {
+      rl.once('line', resolve)
+      rl.once('error', reject)
+    })
+    rl.close()
+    // Keep observing EOF after the readline consumer is detached.
+    process.stdin.resume()
+    if (bytes(line) > MAX_ARTIFACT_BYTES * 2 + MAX_FRAME_BYTES) throw new Error('input oversize')
     if (process.argv.length !== 3 || process.argv[2] !== RUNNER_CHILD_ARG || line === null) throw new Error('invalid child invocation')
     const envelope = JSON.parse(line)
     if (!isObject(envelope) || typeof envelope.artifact_b64 !== 'string' || !isObject(envelope.input)) throw new Error('invalid child input')
@@ -383,10 +464,9 @@ async function runChild() {
     const entry = imported.run ?? imported.default
     if (typeof entry !== 'function') throw new Error('artifact must export run(input)')
     const result = await entry(envelope.input)
-    process.stdout.write(JSON.stringify({ ok: true, result }) + '\n')
+    finishChild({ ok: true, result }, 0)
   } catch {
-    process.stdout.write(JSON.stringify({ ok: false }) + '\n')
-    process.exitCode = 1
+    finishChild({ ok: false }, 1)
   }
 }
 

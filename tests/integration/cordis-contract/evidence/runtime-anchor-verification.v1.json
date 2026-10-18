@@ -1,0 +1,67 @@
+{
+  "schema_version": "runtime-anchor-verification/v1",
+  "status": "pass",
+  "anchor_digest": "sha256:e719ae0fa9ada99ee863140c75a0ea2f9cea4c1e361c3df249b4555785520315",
+  "runtime_anchor": {
+    "schema_version": "testbed-runtime-anchor/v2",
+    "package_name": "@deepseek-ai/cordis",
+    "package_version": "4.0.5",
+    "integrity": "sha512-Sktq5axy0owk9PdnivBRNOJjHEVEibCt0+TDDZcv0+UH2KS1M910fX4kn5y45YFsrpZIi1mJf/1s5VzywMUnyg==",
+    "entry": "file:///D:/dsh-covenant/dsh-plugin-testbed/cordis-runtime/node_modules/.pnpm/@deepseek-ai+cordis@4.0.5_@_90376d305dda7a2df932b5d58ea69b86/node_modules/@deepseek-ai/cordis/lib/index.js",
+    "entry_digest": "sha256:6a9394c0877ff45218818c6e815edd038f8057e1a1deb390a8d43ec81c57691e",
+    "lockfile": {
+      "path": "pnpm-lock.yaml",
+      "digest": "sha256:0dde9d7bd802bbcb91931f2c55c7538abbfe6353a84351e8654c65913743eee3"
+    },
+    "dsh_version": "0.2.1-rc.2",
+    "node_version": "v24.21.0",
+    "platform": "win32",
+    "arch": "x64",
+    "runtime_kind": "locked-runtime",
+    "catalog_ref": {
+      "id": "cordis-runtime-api-catalog",
+      "version": "1.0.0",
+      "digest": "sha256:c75bd776e3f9a655c68345a06f3ebf10beb6516d2bc7bda73801b90ab02e8e83"
+    },
+    "evidence_refs": [
+      "tests/integration/cordis-contract/evidence/cordis-api-catalog.v1.json",
+      "tests/integration/cordis-contract/evidence/cordis-contract-results.v1.json"
+    ],
+    "notes": "Isolated pnpm install under cordis-runtime/; lifecycle scripts disabled by pnpm-workspace.yaml ignoreScripts:true + allowBuilds:false."
+  },
+  "checks": {
+    "anchor_digest": "sha256:e719ae0fa9ada99ee863140c75a0ea2f9cea4c1e361c3df249b4555785520315",
+    "entry_digest": "sha256:6a9394c0877ff45218818c6e815edd038f8057e1a1deb390a8d43ec81c57691e",
+    "entry_path": "D:\\dsh-covenant\\dsh-plugin-testbed\\cordis-runtime\\node_modules\\.pnpm\\@deepseek-ai+cordis@4.0.5_@_90376d305dda7a2df932b5d58ea69b86\\node_modules\\@deepseek-ai\\cordis\\lib\\index.js",
+    "entry_url": "file:///D:/dsh-covenant/dsh-plugin-testbed/cordis-runtime/node_modules/.pnpm/@deepseek-ai+cordis@4.0.5_@_90376d305dda7a2df932b5d58ea69b86/node_modules/@deepseek-ai/cordis/lib/index.js",
+    "lockfile_path": "D:\\dsh-covenant\\dsh-plugin-testbed\\cordis-runtime\\pnpm-lock.yaml",
+    "lockfile_digest": "sha256:0dde9d7bd802bbcb91931f2c55c7538abbfe6353a84351e8654c65913743eee3",
+    "package_observed": {
+      "name": "@deepseek-ai/cordis",
+      "version": "4.0.5",
+      "package_path": "D:\\dsh-covenant\\dsh-plugin-testbed\\cordis-runtime\\node_modules\\.pnpm\\@deepseek-ai+cordis@4.0.5_@_90376d305dda7a2df932b5d58ea69b86\\node_modules\\@deepseek-ai\\cordis\\package.json"
+    },
+    "node_version": "v24.21.0",
+    "node_abi": "137",
+    "platform": "win32",
+    "arch": "x64",
+    "runtime_kind": "locked-runtime"
+  },
+  "environment": {
+    "node_version": "v24.21.0",
+    "node_abi": "137",
+    "platform": "win32",
+    "arch": "x64",
+    "os_type": "Windows_NT",
+    "os_release": "10.0.26200",
+    "os_version": "Windows 11 Pro"
+  },
+  "environment_digest": "sha256:6c41d6db93e28704cc7ad6e15bd20060a8de7be8367c39b87fd48dc921897985",
+  "catalog_digest": "sha256:c75bd776e3f9a655c68345a06f3ebf10beb6516d2bc7bda73801b90ab02e8e83",
+  "lockfile_digest": "sha256:0dde9d7bd802bbcb91931f2c55c7538abbfe6353a84351e8654c65913743eee3",
+  "suite_binding": {
+    "suite_id": "cordis-runtime-contract",
+    "suite_version": "1.0.0",
+    "results_path": "evidence/cordis-contract-results.v1.json"
+  }
+}

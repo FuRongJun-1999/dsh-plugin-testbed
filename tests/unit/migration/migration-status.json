@@ -1,0 +1,106 @@
+{
+  "schema": "ts-migration-status/v1",
+  "policy": {
+    "typescript": "5.9.3",
+    "node_types": "24.19.2",
+    "package_manager": "pnpm@11.28.5",
+    "strict": true,
+    "no_implicit_any": true,
+    "escape_hatches": ["any", "as any", "@ts-ignore", "@ts-expect-error", "@ts-nocheck"],
+    "type_gate": "pnpm exec tsc --noEmit",
+    "build_gate": "pnpm run build:ts",
+    "artifact_rule": "for each src/**/*.ts the sibling .js file is the emitted build artifact; it is never hand-edited and is byte-compared by tests/unit/migration/toolchain.test.js",
+    "runtime_rule": "JavaScript compatibility entries keep working: root index.js, bin/selfcheck.js, and not-yet-migrated src/**/*.js modules load the emitted .js artifacts with no loader change and no Node type stripping"
+  },
+  "phases": [
+    {
+      "id": "P1",
+      "name": "protocol/types",
+      "status": "migrated",
+      "modules": [
+        "src/protocol/types.ts",
+        "src/protocol/enums.ts",
+        "src/protocol/digest.ts",
+        "src/protocol/jsonschema.ts",
+        "src/protocol/transport.ts",
+        "src/protocol/tool-manifest.ts",
+        "src/protocol/schemas.ts",
+        "src/protocol/contracts.ts"
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "pure control",
+      "status": "partially-migrated",
+      "modules": [
+        "src/control/limits.ts",
+        "src/control/budget.ts",
+        "src/control/state.ts",
+        "src/control/assert.ts",
+        "src/control/admission.ts",
+        "src/control/spec.ts",
+        "src/control/capability.ts",
+        "src/control/gate.ts",
+        "src/control/reconcile.ts"
+      ],
+      "deferred": [
+        "src/control/graph.js",
+        "src/control/plan.js",
+        "src/control/execute.js",
+        "src/control/index.js",
+        "src/kernel.js"
+      ],
+      "deferred_reason": "The remaining large algorithm modules (graph/plan/execute/kernel) are still JavaScript compatibility entries in this increment: converting them in one change would be a big-bang rewrite of the security-critical execution path, which TS-05 forbids. They keep their JSDoc boundary types and are guarded by the unchanged 516-test baseline; a follow-up increment converts them one module per green step. Their imports of the migrated protocol/control modules resolve the emitted .js artifacts, so the migration already changed no runtime path."
+    },
+    {
+      "id": "P3",
+      "name": "market-stage evidence sidecars (t5 handoff)",
+      "status": "handoff-verified",
+      "modules": [
+        "src/protocol/market-schemas.ts",
+        "src/evidence/index.ts",
+        "src/evidence/types.ts",
+        "src/evidence/canonical.ts",
+        "src/evidence/signing.ts",
+        "src/evidence/signing-provider.ts",
+        "src/evidence/archive.ts",
+        "src/evidence/archive-provider.ts",
+        "src/evidence/attestation.ts",
+        "src/evidence/sequence.ts"
+      ],
+      "handoff_reason": "t5 converted its new modules to TypeScript source + emitted .js before handoff and verified byte freshness; listed here so the migration freshness gate covers them too. Semantics remain fail-closed (providers development-only/blocked; no KMS/HSM/WORM/TSA trust root)."
+    },
+    {
+      "id": "P4",
+      "name": "protocol/adapters/worker/reports/CLI/plugin",
+      "status": "pending",
+      "modules": [
+        "src/adapters/inprocess.js",
+        "src/adapters/subprocess.js",
+        "src/adapters/invocation-witness.js",
+        "src/adapters/index.js",
+        "src/worker/boundary.js",
+        "src/worker/environment.js",
+        "src/worker/host.js",
+        "src/worker/observe.js",
+        "src/worker/probe.js",
+        "src/worker/runner.js",
+        "src/worker/runtime.js",
+        "src/reports/shape.js",
+        "src/reports/receipt.js",
+        "src/reports/exit.js",
+        "src/reports/project/index.js",
+        "src/reports/project/model.js",
+        "src/reports/project/junit.js",
+        "src/reports/project/tap.js",
+        "src/reports/project/html.js",
+        "src/reports/project/ci-summary.js",
+        "src/reports/project/labels.js",
+        "bin/selfcheck.js",
+        "index.js"
+      ],
+      "pending_reason": "Not started in this increment; these modules remain JavaScript compatibility entries. New market-stage modules added by t4/t5/t6/t7 are authored as TypeScript from day one and are type-gated by the same root tsc run; this phase tracks only the pre-existing L1 baseline modules."
+    }
+  ],
+  "new_code_rule": "Every module created after this migration starts as src/**/*.ts and is emitted to its sibling .js; allowJs/checkJs is only a bridge for the pre-existing L1 baseline, never a home for new code."
+}

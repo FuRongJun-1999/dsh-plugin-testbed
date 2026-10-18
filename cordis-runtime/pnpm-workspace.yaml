@@ -1,0 +1,15 @@
+# pnpm 11 reads project settings from pnpm-workspace.yaml. This directory is a
+# standalone, pinned install root (no workspace packages). Lifecycle scripts are
+# disabled globally and every detected build script is explicitly denied, so
+# installs are deterministic and do not execute registry lifecycle code; the
+# Cordis contract only needs pure JS.
+packages: []
+
+ignoreScripts: true
+
+allowBuilds:
+  '@deepseek-ai/dsh-subprocess-local': false
+  '@google/genai': false
+  koffi: false
+  node-pty: false
+  protobufjs: false

@@ -1,0 +1,448 @@
+{
+  "schema_version": "windows-l2-execution-evidence/v1",
+  "generated_at": "2026-10-18T20:06:58.441Z",
+  "authorization": {
+    "approved_by": "captain+user (team channel; explicit approval)",
+    "approval_ref": "t4-windows-l2-authorization-2026-10-19",
+    "profile_name": "DshTestbedL2",
+    "scope": [
+      "create-appcontainer-profile",
+      "launch-appcontainer-process",
+      "assign-job-object",
+      "create-temp-root",
+      "delete-attempt-temp",
+      "delete-appcontainer-profile"
+    ],
+    "expires_at": "2026-10-19T00:00:00Z"
+  },
+  "mechanism": [
+    "appcontainer-lowbox",
+    "job-object",
+    "firewall-per-user",
+    "acl-temp-root",
+    "reparse-deny",
+    "env-allowlist"
+  ],
+  "profile": {
+    "name": "DshTestbedL2",
+    "existed_before": true,
+    "exists_after": true,
+    "sid": "S-1-15-2-2678853618-3431561301-894638359-2551736426-3056439323-1147477336-3232456813"
+  },
+  "launch": {
+    "run_id": "run-l2-a2-mve9ar8b",
+    "plan_id": "plan-sha256:0d981113d4dd18fe3d8d76e4f2dec9a09d92f93c2fa71c114182d0f88406e8e3",
+    "status": "launched",
+    "pid": 10124,
+    "token_is_appcontainer": true,
+    "identity_integrity": "low",
+    "capability_count": 0,
+    "job_limits": {
+      "process_time_100ns": 150000000,
+      "process_memory_bytes": 268435456,
+      "job_memory_bytes": 536870912,
+      "active_process_limit": 8,
+      "kill_on_job_close": true,
+      "limit_flags": 8970,
+      "measured": true
+    },
+    "temp_root": "C:\\Users\\19059\\AppData\\Local\\Packages\\dshtestbedl2\\AC\\runner\\attempt--a2-mve9ar8b-0d981113",
+    "acl_sddl": "D:AI(A;OICIIDCR;FA;;;S-1-15-2-2678853618-3431561301-894638359-2551736426-3056439323-1147477336-3232456813)(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)(A;OICIID;FA;;;S-1-5-21-<redacted-user-sid>)",
+    "profile_created": false,
+    "stdio_inherited": true,
+    "blocked_stage": null,
+    "blocked_error": null,
+    "exit_code": 0,
+    "appcontainer_sid": "S-1-15-2-2678853618-3431561301-894638359-2551736426-3056439323-1147477336-3232456813",
+    "reparse_points": 0
+  },
+  "probe": {
+    "cases": [
+      {
+        "case_id": "A2-01",
+        "category": "filesystem",
+        "status": "pass",
+        "observed": "denied:EPERM",
+        "detail": "D:\\dsh-covenant\\NEXT-PHASE-REQUIREMENTS.md"
+      },
+      {
+        "case_id": "A2-01",
+        "category": "filesystem",
+        "status": "pass",
+        "observed": "denied:ENOENT",
+        "detail": "C:\\Users\\19059\\.dsh\\team.json"
+      },
+      {
+        "case_id": "A2-01",
+        "category": "filesystem",
+        "status": "pass",
+        "observed": "denied:EPERM",
+        "detail": "C:\\Users\\19059\\.ssh\\id_ed25519"
+      },
+      {
+        "case_id": "A2-04",
+        "category": "filesystem",
+        "status": "pass",
+        "observed": "denied:EPERM",
+        "detail": "D:\\dsh-covenant\\a2-escape.txt"
+      },
+      {
+        "case_id": "A2-04",
+        "category": "filesystem",
+        "status": "pass",
+        "observed": "denied:EPERM",
+        "detail": "C:\\Windows\\Temp\\dsh-a2-escape.txt"
+      },
+      {
+        "case_id": "A2-03",
+        "category": "credentials",
+        "status": "pass",
+        "observed": "denied:EPERM",
+        "detail": "C:\\Users\\19059\\AppData\\Roaming\\Microsoft\\Credentials\\"
+      },
+      {
+        "case_id": "A2-03",
+        "category": "credentials",
+        "status": "pass",
+        "observed": "denied:EPERM",
+        "detail": "C:\\Users\\19059\\AppData\\Roaming\\Microsoft\\Crypto\\"
+      },
+      {
+        "case_id": "A2-12",
+        "category": "process",
+        "status": "pass",
+        "observed": "denied:EPERM",
+        "detail": "C:\\Windows\\System32\\config\\SAM"
+      },
+      {
+        "case_id": "A2-02",
+        "category": "credentials",
+        "status": "pass",
+        "observed": "env-secret-keys:0",
+        "detail": ""
+      },
+      {
+        "case_id": "A2-05",
+        "category": "filesystem",
+        "status": "pass",
+        "observed": "symlink-creation-denied:EPERM",
+        "detail": null
+      },
+      {
+        "case_id": "A2-06",
+        "category": "network",
+        "status": "pass",
+        "observed": "net:EACCES,ECONNREFUSED,EACCES;dns:blocked",
+        "detail": null
+      },
+      {
+        "case_id": "A2-11",
+        "category": "network",
+        "status": "pass",
+        "observed": "named-pipe:ENOENT",
+        "detail": null
+      }
+    ],
+    "cwd": "C:\\Users\\19059\\AppData\\Local\\Packages\\dshtestbedl2\\AC\\runner\\attempt--a2-mve9ar8b-0d981113",
+    "pid": 10124
+  },
+  "worker_stderr_tail": "",
+  "worker_stdout_tail": "DSH_A2_PROBE {\"cases\":[{\"case_id\":\"A2-01\",\"category\":\"filesystem\",\"status\":\"pass\",\"observed\":\"denied:EPERM\",\"detail\":\"D:\\\\dsh-covenant\\\\NEXT-PHASE-REQUIREMENTS.md\"},{\"case_id\":\"A2-01\",\"category\":\"filesystem\",\"status\":\"pass\",\"observed\":\"denied:ENOENT\",\"detail\":\"C:\\\\Users\\\\<redacted>\\\\.dsh\\\\team.json\"},{\"case_id\":\"A2-01\",\"category\":\"filesystem\",\"status\":\"pass\",\"observed\":\"denied:EPERM\",\"detail\":\"C:\\\\Users\\\\<redacted>\\\\.ssh\\\\id_ed25519\"},{\"case_id\":\"A2-04\",\"category\":\"filesystem\",\"status\":\"pass\",\"observed\":\"denied:EPERM\",\"detail\":\"D:\\\\dsh-covenant\\\\a2-escape.txt\"},{\"case_id\":\"A2-04\",\"category\":\"filesystem\",\"status\":\"pass\",\"observed\":\"denied:EPERM\",\"detail\":\"C:\\\\Windows\\\\Temp\\\\dsh-a2-escape.txt\"},{\"case_id\":\"A2-03\",\"category\":\"credentials\",\"status\":\"pass\",\"observed\":\"denied:EPERM\",\"detail\":\"C:\\\\Users\\\\<redacted>\\\\AppData\\\\Roaming\\\\Microsoft\\\\Credentials\\\\\"},{\"case_id\":\"A2-03\",\"category\":\"credentials\",\"status\":\"pass\",\"observed\":\"denied:EPERM\",\"detail\":\"C:\\\\Users\\\\<redacted>\\\\AppData\\\\Roaming\\\\Microsoft\\\\Crypto\\\\\"},{\"case_id\":\"A2-12\",\"category\":\"process\",\"status\":\"pass\",\"observed\":\"denied:EPERM\",\"detail\":\"C:\\\\Windows\\\\System32\\\\config\\\\SAM\"},{\"case_id\":\"A2-02\",\"category\":\"credentials\",\"status\":\"pass\",\"observed\":\"env-secret-keys:0\",\"detail\":\"\"},{\"case_id\":\"A2-05\",\"category\":\"filesystem\",\"status\":\"pass\",\"observed\":\"symlink-creation-denied:EPERM\",\"detail\":null},{\"case_id\":\"A2-06\",\"category\":\"network\",\"status\":\"pass\",\"observed\":\"net:EACCES,ECONNREFUSED,EACCES;dns:blocked\",\"detail\":null},{\"case_id\":\"A2-11\",\"category\":\"network\",\"status\":\"pass\",\"observed\":\"named-pipe:ENOENT\",\"detail\":null}],\"cwd\":\"C:\\\\Users\\\\<redacted>\\\\AppData\\\\Local\\\\Packages\\\\dshtestbedl2\\\\AC\\\\runner\\\\attempt--a2-mve9ar8b-0d981113\",\"pid\":10124}\n",
+  "a2": {
+    "executed_case_count": 12,
+    "executed_case_ids": [
+      "A2-01",
+      "A2-01",
+      "A2-01",
+      "A2-04",
+      "A2-04",
+      "A2-03",
+      "A2-03",
+      "A2-12",
+      "A2-02",
+      "A2-05",
+      "A2-06",
+      "A2-11"
+    ],
+    "blocked_case_ids": [
+      "A2-07",
+      "A2-08",
+      "A2-09",
+      "A2-10",
+      "A2-13",
+      "A2-14",
+      "A2-15",
+      "A2-16",
+      "A2-17",
+      "A2-18"
+    ],
+    "evaluation_result": "blocked",
+    "market_evidence": false,
+    "reason_codes": [
+      "adversarial-suite-missing",
+      "fixture-not-market-evidence"
+    ],
+    "diagnostics": [
+      "provider-provenance-not-external",
+      "provider-evidence-grade-not-market"
+    ]
+  },
+  "attestation": {
+    "digest": "sha256:5eca1c16b6540d0b95a4faf379b20e0ccd81b480a0e63bc2df4368e09f3804c0",
+    "result": "valid",
+    "reason_codes": [],
+    "checks": [
+      {
+        "id": "digest",
+        "status": "pass"
+      },
+      {
+        "id": "issuer-trust",
+        "status": "pass",
+        "detail": "trust:control-plane-measured"
+      },
+      {
+        "id": "control-plane-evidence",
+        "status": "pass",
+        "detail": "need-at-least-two-external-evidence-refs"
+      },
+      {
+        "id": "isolation-level",
+        "status": "pass",
+        "detail": "attested:L2,required:L2"
+      },
+      {
+        "id": "binding.run_id",
+        "status": "pass",
+        "detail": "expected:run-l2-a2-mve9ar8b,attested:run-l2-a2-mve9ar8b"
+      },
+      {
+        "id": "binding.plan_id",
+        "status": "pass",
+        "detail": "expected:plan-sha256:0d981113d4dd18fe3d8d76e4f2dec9a09d92f93c2fa71c114182d0f88406e8e3,attested:plan-sha256:0d981113d4dd18fe3d8d76e4f2dec9a09d92f93c2fa71c114182d0f88406e8e3"
+      },
+      {
+        "id": "binding.test_id",
+        "status": "pass",
+        "detail": "expected:iso.windows-l2.a2,attested:iso.windows-l2.a2"
+      },
+      {
+        "id": "binding.attempt",
+        "status": "pass",
+        "detail": "expected:1,attested:1"
+      },
+      {
+        "id": "binding.correlation",
+        "status": "pass"
+      },
+      {
+        "id": "binding.launcher",
+        "status": "pass",
+        "detail": "launcher-identity-or-provider-digest-mismatch"
+      },
+      {
+        "id": "binding.policy",
+        "status": "pass",
+        "detail": "policy-version-or-digest-mismatch"
+      },
+      {
+        "id": "policy.market-version",
+        "status": "pass",
+        "detail": "policy:market-gate-policy/v1"
+      },
+      {
+        "id": "identity.low-privilege",
+        "status": "pass",
+        "detail": "elevated:false,integrity:low"
+      },
+      {
+        "id": "identity.appcontainer",
+        "status": "pass",
+        "detail": "appcontainer-sid-missing"
+      },
+      {
+        "id": "filesystem.read-only-inputs",
+        "status": "pass",
+        "detail": "filesystem:read-only-inputs-invalid"
+      },
+      {
+        "id": "filesystem.root-not-denied",
+        "status": "pass",
+        "detail": "filesystem:root-inside-denied-tree"
+      },
+      {
+        "id": "filesystem.enforced",
+        "status": "pass",
+        "detail": "isolation-dimension-unenforced:filesystem"
+      },
+      {
+        "id": "network.deny-default",
+        "status": "pass",
+        "detail": "isolation-dimension-unenforced:network"
+      },
+      {
+        "id": "network.allowlist-subset",
+        "status": "pass",
+        "detail": "network:allowlist-outside-policy"
+      },
+      {
+        "id": "resources.within-policy",
+        "status": "pass",
+        "detail": "isolation-dimension-unenforced:resources"
+      },
+      {
+        "id": "resources.os-mechanism",
+        "status": "pass",
+        "detail": "resources:os-mechanism-missing"
+      },
+      {
+        "id": "process-tree.kill-on-close",
+        "status": "pass",
+        "detail": "isolation-dimension-unenforced:subprocess"
+      },
+      {
+        "id": "devices.enforced",
+        "status": "pass",
+        "detail": "isolation-dimension-unenforced:devices"
+      },
+      {
+        "id": "secrets.isolated",
+        "status": "pass",
+        "detail": "isolation-dimension-unenforced:secrets"
+      },
+      {
+        "id": "evidence.refs",
+        "status": "pass",
+        "detail": "evidence-ref-missing-or-malformed"
+      },
+      {
+        "id": "freshness.issued-at",
+        "status": "pass",
+        "detail": "age_ms:4154,max_age_ms:600000"
+      },
+      {
+        "id": "nonce.consume",
+        "status": "pass"
+      }
+    ],
+    "attestation": {
+      "schema_version": "isolation-attestation/v1",
+      "attestation_id": "iso-a5b18876800d4c79d7115809971c236e",
+      "issuer": {
+        "launcher_id": "windows-appcontainer-l2",
+        "version": "0.1.0-isolation-candidate",
+        "trust": "control-plane-measured",
+        "provider_digest": "sha256:3e3b7b576eba17b257a176ac9e7222ff824f4d3cc7ed15ca322e4c5953ee295d"
+      },
+      "run_id": "run-l2-a2-mve9ar8b",
+      "plan_id": "plan-sha256:0d981113d4dd18fe3d8d76e4f2dec9a09d92f93c2fa71c114182d0f88406e8e3",
+      "test_id": "iso.windows-l2.a2",
+      "attempt": 1,
+      "worker": {
+        "worker_id": "worker-10124",
+        "pid": 10124,
+        "started_at": "2026-10-18T20:06:50.1542182Z"
+      },
+      "isolation": {
+        "level": "L2",
+        "mechanisms": [
+          "appcontainer-lowbox",
+          "job-object",
+          "acl-temp-root",
+          "reparse-deny",
+          "env-allowlist"
+        ],
+        "elevated": false
+      },
+      "identity": {
+        "sid": "S-1-15-2-2678853618-3431561301-894638359-2551736426-3056439323-1147477336-3232456813",
+        "user": "DshTestbedL2",
+        "integrity": "low",
+        "appcontainer_sid": "S-1-15-2-2678853618-3431561301-894638359-2551736426-3056439323-1147477336-3232456813"
+      },
+      "filesystem": {
+        "root": "C:\\Users\\19059\\AppData\\Local\\Packages\\dshtestbedl2\\AC\\runner\\attempt--a2-mve9ar8b-0d981113",
+        "acl_digest": "sha256:03f410185c1f3582d1bbdfad7131f7864056b3144800f12d6fdd02baf576c692",
+        "read_only_inputs": [
+          "input-1b5043f6a470800fcfdaa9f1ac09b757a546b2cc9ab38c223322c90ce70a596e"
+        ],
+        "reparse_follow": "deny"
+      },
+      "network": {
+        "default": "deny",
+        "allowlist": [],
+        "mechanism": "appcontainer-no-capability",
+        "rules_digest": "sha256:ea42423e58137e400a5034031df2b779f23733748aa1a317c47438a05a1c579f"
+      },
+      "resources": {
+        "cpu_ms": 15000,
+        "memory_mb": 256,
+        "processes": 8,
+        "temp_bytes": 1048576,
+        "output_bytes": 1048576,
+        "job_object": "windows-job-object",
+        "limits_digest": "sha256:dc9b229c92a0b02c57e7ca0c0d7eb360b065c5a7faa1d08e5f3862f4226d4864"
+      },
+      "process_tree": {
+        "kill_on_close": true,
+        "observed_pids": [
+          10124
+        ]
+      },
+      "devices": {
+        "enforced": true,
+        "denied": [
+          "device-access-not-granted"
+        ]
+      },
+      "secrets": {
+        "enforced": true,
+        "ambient_credentials": "none",
+        "env_allowlist_digest": "sha256:1bd1a52f55518fdd74930506b8fc3316be3f4cbbc3a6e406bd7b616758612c7b",
+        "handle_inheritance": "deny"
+      },
+      "evidence_refs": [
+        "ev-launcher-7a7a86ea90be95f03e151d904bc6079994440c6c9d4f931c33c95ed0d53f314f",
+        "ev-jobobject-17de66574d8fff5ea1060d8b8147befc9a1d6ebc61e2b521fec91a8aeac9ea18"
+      ],
+      "issued_at": "2026-10-18T20:06:50.1542182Z",
+      "nonce": "EE7Jgg0o9izRdVhuekWYmBuyWpcxzcfE_AGkqDjrIAk",
+      "policy": {
+        "policy_version": "market-gate-policy/v1",
+        "policy_digest": "sha256:2ad47da5008013907c88a3efbc44084f724500ef4b3326b8b734125a85a0ba11"
+      },
+      "signature": null
+    }
+  },
+  "reap": {
+    "pid_alive": false,
+    "temp_removed": true,
+    "reaped": true
+  },
+  "cancel_reap": {
+    "launched": true,
+    "worker_pid": 9968,
+    "pid_alive_after_cancel": false,
+    "temp_removed_by_control_plane": true,
+    "temp_existed_after_cancel": true,
+    "launcher_exit_code": null,
+    "status": "pass",
+    "stderr_tail": ""
+  },
+  "residual_risks": [
+    "launcher/test harness ran in the current High-IL administrator session; worker token is AppContainer Low IL",
+    "A2 subset executed; remaining cases are blocked/not-executed",
+    "no external availability record / signed attestation => market_evidence=false",
+    "temp/output disk quotas are control-plane monitored, not OS-enforced"
+  ],
+  "rollback": {
+    "required": true,
+    "command": "launcher.ps1 -Mode delete-profile -AuthorizationPath <authorization.json>",
+    "profile_folder": "C:\\Users\\19059\\AppData\\Local\\Packages\\dshtestbedl2\\AC",
+    "executed_at": "2026-10-18T20:09:33.780Z",
+    "result": "profile-deleted",
+    "package_folder_removed": true,
+    "post_rollback_profile_exists": false,
+    "evidence_ref": "tests/unit/isolation/evidence/windows-l2-rollback.json"
+  }
+}

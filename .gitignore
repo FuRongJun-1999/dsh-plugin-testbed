@@ -17,3 +17,6 @@ Thumbs.db
 # documents stay local-only and are intentionally not pushed
 CONTRACT*.md
 ACCEPTANCE.md
+
+# internal operations/authorization notes stay local-only
+src/isolation/native/windows-l2/AUTHORIZATION-REQUEST.md

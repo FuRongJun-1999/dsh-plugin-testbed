@@ -1,0 +1,347 @@
+{
+  "schema_version": "cordis-contract-results/v1",
+  "suite_id": "cordis-runtime-contract",
+  "suite_version": "1.0.0",
+  "suite_digest": "sha256:d244c2062b11c5284a0c4521cfb25e2e958af6622531203341fc69de3c27945a",
+  "runtime_anchor_digest": "sha256:e719ae0fa9ada99ee863140c75a0ea2f9cea4c1e361c3df249b4555785520315",
+  "runtime_kind": "locked-runtime",
+  "catalog_ref": {
+    "id": "cordis-runtime-api-catalog",
+    "version": "1.0.0",
+    "digest": "sha256:c75bd776e3f9a655c68345a06f3ebf10beb6516d2bc7bda73801b90ab02e8e83"
+  },
+  "catalog_digest": "sha256:c75bd776e3f9a655c68345a06f3ebf10beb6516d2bc7bda73801b90ab02e8e83",
+  "lockfile_digest": "sha256:0dde9d7bd802bbcb91931f2c55c7538abbfe6353a84351e8654c65913743eee3",
+  "entry_digest": "sha256:6a9394c0877ff45218818c6e815edd038f8057e1a1deb390a8d43ec81c57691e",
+  "package": {
+    "name": "@deepseek-ai/cordis",
+    "version": "4.0.5",
+    "integrity": "sha512-Sktq5axy0owk9PdnivBRNOJjHEVEibCt0+TDDZcv0+UH2KS1M910fX4kn5y45YFsrpZIi1mJf/1s5VzywMUnyg=="
+  },
+  "dsh_version": "0.2.1-rc.2",
+  "environment": {
+    "node_version": "v24.21.0",
+    "node_abi": "137",
+    "platform": "win32",
+    "arch": "x64",
+    "os_type": "Windows_NT",
+    "os_release": "10.0.26200",
+    "os_version": "Windows 11 Pro"
+  },
+  "environment_digest": "sha256:6c41d6db93e28704cc7ad6e15bd20060a8de7be8367c39b87fd48dc921897985",
+  "cases": [
+    {
+      "case_id": "runtime.module-identity",
+      "area": "runtime",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.557Z",
+      "ended_at": "2026-10-18T23:04:46.568Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#runtime.module-identity"
+      ],
+      "detail": {
+        "real_exports": [
+          "Context",
+          "Fiber",
+          "Service",
+          "EventsService",
+          "RegistryService",
+          "CordisError",
+          "ValidationError"
+        ],
+        "real_context_identity": true,
+        "stub_exports": [
+          "Context",
+          "Fiber",
+          "STATE"
+        ],
+        "stub_missing_exports": [
+          "CordisError",
+          "EventsService",
+          "RegistryService",
+          "Service",
+          "ValidationError"
+        ],
+        "fixture_substitution_rejected": true
+      }
+    },
+    {
+      "case_id": "context.events-dispatch",
+      "area": "events",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.568Z",
+      "ended_at": "2026-10-18T23:04:46.576Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#context.events-dispatch"
+      ],
+      "detail": {
+        "emit_values": 2,
+        "bail": "b-bail",
+        "serial": "b-bail",
+        "parallel_awaited": true,
+        "waterfall_result": 3,
+        "listener_cleanup": "pass"
+      }
+    },
+    {
+      "case_id": "context.service-registry",
+      "area": "context",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.576Z",
+      "ended_at": "2026-10-18T23:04:46.601Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#context.service-registry"
+      ],
+      "detail": {
+        "active_plugins": 2,
+        "registry_size_after_delete": 1,
+        "duplicate_provide_rejected": true,
+        "service_value": "undefined-as-expected"
+      }
+    },
+    {
+      "case_id": "service.isolation",
+      "area": "service",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.601Z",
+      "ended_at": "2026-10-18T23:04:46.609Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#service.isolation"
+      ],
+      "detail": {
+        "scopes": [
+          "root-value",
+          "a-value",
+          "b-value"
+        ],
+        "parked_state": 0,
+        "reactivated_state": 2
+      }
+    },
+    {
+      "case_id": "fiber.lifecycle",
+      "area": "fiber",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.609Z",
+      "ended_at": "2026-10-18T23:04:46.651Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#fiber.lifecycle"
+      ],
+      "detail": {
+        "states": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            5
+          ],
+          [
+            5,
+            4
+          ],
+          [
+            2,
+            5
+          ],
+          [
+            5,
+            4
+          ]
+        ],
+        "final_state": 4,
+        "final_uid": null,
+        "disposed_restart_rejected": true
+      }
+    },
+    {
+      "case_id": "fiber.failure-recovery",
+      "area": "fiber",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.651Z",
+      "ended_at": "2026-10-18T23:04:46.655Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#fiber.failure-recovery"
+      ],
+      "detail": {
+        "states": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            5
+          ],
+          [
+            5,
+            3
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            5,
+            4
+          ]
+        ],
+        "failed_state": 3,
+        "recovered_state": 2,
+        "attempts": 2,
+        "restart_promise_rejected_with": "contract-first-activation-boom",
+        "locked_version_note": "restart() re-executes the callback and reaches ACTIVE; the locked 4.0.5 promise may still reject with the cached startup error, and the fiber state field is not refreshed to DISPOSED after this recovery path (uid clears).",
+        "state_after_dispose": 2,
+        "uid_after_dispose": null
+      }
+    },
+    {
+      "case_id": "fiber.effects-resource-release",
+      "area": "fiber",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.655Z",
+      "ended_at": "2026-10-18T23:04:46.682Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#fiber.effects-resource-release"
+      ],
+      "detail": {
+        "effect_labels": [
+          "contract/effect-sync",
+          "contract/effect-async",
+          "contract/effect-abort"
+        ],
+        "disposal_order": [
+          "apply",
+          "sync-effect",
+          "async-effect",
+          "abort-effect",
+          "plugin-return-disposer",
+          "sync-dispose",
+          "async-dispose"
+        ],
+        "abort_signal_aborted": true
+      }
+    },
+    {
+      "case_id": "loader.dynamic-entries",
+      "area": "loader",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.682Z",
+      "ended_at": "2026-10-18T23:04:46.801Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#loader.dynamic-entries"
+      ],
+      "detail": {
+        "first_activation": 1,
+        "second_activation": 2,
+        "entries_after_remove": 0
+      }
+    },
+    {
+      "case_id": "loader.group-entries",
+      "area": "loader",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.801Z",
+      "ended_at": "2026-10-18T23:04:46.834Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#loader.group-entries"
+      ],
+      "detail": {
+        "entries_with_group": 2,
+        "child_released": true
+      }
+    },
+    {
+      "case_id": "timer.disposal",
+      "area": "timer",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:46.834Z",
+      "ended_at": "2026-10-18T23:04:47.077Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#timer.disposal"
+      ],
+      "detail": {
+        "ticks_at_dispose": 1,
+        "ticks_after_dispose": 1,
+        "timeout_fired_after_dispose": false
+      }
+    },
+    {
+      "case_id": "dynamic-runner.define-run-stop-undefine",
+      "area": "dynamic-runner",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:47.078Z",
+      "ended_at": "2026-10-18T23:04:47.120Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#dynamic-runner.define-run-stop-undefine"
+      ],
+      "detail": {
+        "plugin_id": "ctr-1",
+        "package_id": "pkg-1",
+        "run_id": "run-1",
+        "host_fiber_state_while_running": 2,
+        "host_fiber_state_after_stop": 4,
+        "second_stop_reason": "not-running",
+        "inventory_after_undefine": 0,
+        "stop_after_undefine_reason": "plugin-missing"
+      }
+    },
+    {
+      "case_id": "dynamic-runner.error-and-cancel",
+      "area": "dynamic-runner",
+      "required": true,
+      "status": "pass",
+      "started_at": "2026-10-18T23:04:47.120Z",
+      "ended_at": "2026-10-18T23:04:47.142Z",
+      "evidence_refs": [
+        "evidence/cordis-contract-results.v1.json#dynamic-runner.error-and-cancel"
+      ],
+      "detail": {
+        "failed_reason": "host-half-failed",
+        "failed_message": "contract dynamic host boom",
+        "cancelled_reason": "cancelled",
+        "stop_after_undefine_reason": "plugin-missing"
+      }
+    }
+  ],
+  "summary": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "required_failed": 0
+  },
+  "started_at": "2026-10-18T23:04:46.080Z",
+  "ended_at": "2026-10-18T23:04:47.142Z"
+}

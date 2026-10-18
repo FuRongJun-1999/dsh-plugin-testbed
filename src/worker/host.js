@@ -1,22 +1,27 @@
 /**
- * worker host 入口 —— 真实 L1 子进程（标准 Node ESM；仅 import `node:*` 与 `../protocol/*`）。
+ * worker host 入口 —— 真实 L1 子进程（标准 Node ESM；仅 import `node:*` 与 `../protocol/*`、`./*`）。
  *
  * ⚠️ 隔离定位（如实标注）：
- * - 这是 **L1 子进程内建 smoke 能力**：内建 op = `echo` / `error` / `sleep`（传输与生命周期
- *   验收）+ `load-put`（M3：用真实 Cordis 装载 fixture PUT，产出加载/卸载 observation）。
- * - `L1-subprocess` = 普通同权限子进程，仅隔离崩溃/堆/生命周期，**不是安全边界**；
- *   filesystem / network / subprocess / devices / cpu / memory 均无法由 OS 强制 → 一律 `unenforced`。
- * - `load-put` 用真实 Cordis（`import(cordis_entry)` 取 `Context`）在**本进程内**装载 PUT，
- *   属进程内行为隔离；**不使用 `node:vm`**。failing PUT 仍回 `completed`（FAILED 是待断言观测值）。
+ * - **L1 子进程 = 普通同权限进程**：只隔离崩溃/堆/生命周期，**不是安全边界**；
+ *   filesystem / network / subprocess / devices / cpu / memory 一律 `unenforced`。
+ * - 内建 op：`echo` / `error` / `sleep` / `env-audit`（传输与生命周期验收）、
+ *   `load-put`（用真实 Cordis 装载 fixture PUT）、`probe-capabilities`
+ *   （两阶段能力探测：环境预检 → 装载 PUT/读声明/实测）。
+ * - Cordis 入口**不硬编码**：由 CLI `--runtime-anchor`、`DSH_TESTBED_RUNTIME_ANCHOR` /
+ *   `DSH_TESTBED_CORDIS_ENTRY`、或已解析的安装包注入/解析；真实运行时可解析时
+ *   观测结果标 `real-cordis`，注入的非锁定运行时标 `injected-runtime`。
+ *   真实 Cordis 不可用 → 明确 `error`/`cordis-runtime-unavailable`（load-put）或
+ *   快照 `runtime.status='unavailable'` + `observed='unknown'`（探测），绝不伪造 pass。
+ * - worker 启动即清理环境：只保留系统 allowlist 键，控制面凭据/签名密钥/ambient
+ *   credentials 不进入 worker；工具子进程只收到最小环境。
  *
  * 帧协议（control-protocol/v1，NDJSON，每行一个 JSON）：
- * - 收：`request` 帧（protocol_version + request_id/run_id/plan_id/test_id/attempt + input）。
- * - 发：内建合法 request 先 `started`，manifest request 仅在预检通过且子进程启动后发通知。
- *       `started` 仅回显 correlation tuple，**不是独立可信的启动证据**；没有另行接入的
- *       可信控制源时 invocation_status 保持 unknown、invocation_evidence_verified 保持 false。
- * - 所有帧写 stdout（一行一个 JSON；同一字节等价于 `console.log(JSON.stringify(frame))`，
- *   改用带 flush 回调的 `process.stdout.write` 是为了退出前不截断）；诊断一律
- *   `console.error` 到 stderr，stdout 绝无非 JSON 杂音。
+ * - 收：`request` 帧（protocol_version + request_id/run_id/plan_id/test_id/attempt + input）；
+ *   以及闭集 `test-tool/v1` ToolRequest（工具模式）。
+ * - 发：内建合法 request 先 `started`，manifest request 仅在子进程真实 spawn 后发通知。
+ *       `started` 只回显 correlation tuple，**无权威时间戳、不是独立可信启动证据**；
+ *       adapter 侧另有独立见证，未接入时 invocation_status 保持 unknown。
+ * - 所有帧写 stdout（一行一个 JSON）；诊断一律 `console.error` 到 stderr，stdout 零杂音。
  *
  * @module @deepseek-ai/dsh-plugin-testbed/worker/host
  */
@@ -24,18 +29,34 @@
 import { createInterface } from 'node:readline'
 import { readFile, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep, win32 } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { CONTROL_PROTOCOL_VERSION, MAX_FRAME_BYTES, assertFrameShape, assertToolRequest, assertToolResponse } from '../protocol/transport.js'
 import { EXECUTION_STATUS, TEST_TOOL_PROTOCOL_VERSION } from '../protocol/enums.js'
 import { validateToolManifest } from '../protocol/tool-manifest.js'
 import { runToolRequest } from './runner.js'
+import { createWorkerLifecycle, installSignalHandlers } from './boundary.js'
+import { captureRuntimeEnvironment, scrubAmbientEnvironment } from './environment.js'
+import { boundObservationValue, isPlainRecord, sanitizeError } from './observe.js'
+import { probeWorkerCapabilities } from './probe.js'
+import {
+  MAX_RUNTIME_ENTRY_BYTES,
+  makeRuntimeAnchor,
+  resolveRuntimeAnchor,
+} from './runtime.js'
 
 // 执行级 reason code（CONTRACT-m2 §2 逐字）；不属于传输级 TRANSPORT_REASON_CODES。
 const REASON_WORKER_ERROR = 'worker-error'
+const REASON_CORDIS_UNAVAILABLE = 'cordis-runtime-unavailable'
+const REASON_PUT_ENTRY_INVALID = 'put-entry-invalid'
+const REASON_PROBE_INVALID = 'capability-probe-invalid'
+const REASON_PROBE_FAILED = 'capability-probe-failed'
 const WORKER_CONTEXT_VERSION = 'worker-context/v1'
 const CAPABILITY_REF_RE = /^cap-sha256:[0-9a-f]{64}$/
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/
 const TOOL_REF_KEYS = ['tool_id', 'version', 'artifact_digest']
 const CONTEXT_BINDING_KEYS = ['manifest', 'artifactPath', 'workspaceRoot', 'toolRef']
+const MAX_PUT_CONFIG_BYTES = 64 * 1024
+const BUILTIN_OPS = ['echo', 'error', 'sleep', 'load-put', 'env-audit', 'probe-capabilities']
 
 function plainRecord(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
@@ -91,15 +112,34 @@ function validateWorkerContext(value) {
   return deepFreeze({ schema_version: WORKER_CONTEXT_VERSION, bindings, capability_snapshot_refs: refs })
 }
 
-async function loadWorkerContext() {
-  const args = process.argv.slice(2)
-  if (args.length === 0) return null
-  if (args.length !== 2 || args[0] !== '--worker-context') throw new Error('invalid worker host arguments')
-  const path = args[1]
-  if (typeof path !== 'string' || !path) throw new Error('invalid worker context path')
-  const fileStat = await stat(path)
+/**
+ * Parse host arguments. `--worker-context` is the M5 launcher contract and stays
+ * stable; `--runtime-anchor` is an optional locked-runtime injection. Each flag
+ * may appear at most once; unknown/duplicate arguments fail closed.
+ * @param {string[]} argv
+ */
+export function parseWorkerArgs(argv) {
+  const options = { contextPath: null, runtimeAnchor: null }
+  if (!Array.isArray(argv)) throw new Error('invalid worker host arguments')
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index]
+    const value = argv[index + 1]
+    if (typeof flag !== 'string' || typeof value !== 'string' || value.length === 0) {
+      throw new Error('invalid worker host arguments')
+    }
+    if (flag === '--worker-context' && options.contextPath === null) options.contextPath = value
+    else if (flag === '--runtime-anchor' && options.runtimeAnchor === null) options.runtimeAnchor = value
+    else throw new Error('invalid worker host arguments')
+  }
+  return options
+}
+
+async function loadWorkerContext(contextPath) {
+  if (contextPath === null || contextPath === undefined) return null
+  if (typeof contextPath !== 'string' || !contextPath) throw new Error('invalid worker context path')
+  const fileStat = await stat(contextPath)
   if (!fileStat.isFile() || fileStat.size > MAX_FRAME_BYTES) throw new Error('worker context exceeds size limit')
-  const source = await readFile(path, 'utf8')
+  const source = await readFile(contextPath, 'utf8')
   if (Buffer.byteLength(source, 'utf8') > MAX_FRAME_BYTES) throw new Error('worker context exceeds size limit')
   const raw = JSON.parse(source)
   return validateWorkerContext(raw)
@@ -108,6 +148,7 @@ async function loadWorkerContext() {
 // fiber.state 是 const enum，运行时无数值→名对象，须自备映射（CONTRACT-m3 §0 实测锚定）：
 //   PENDING=0 LOADING=1 ACTIVE=2 FAILED=3 DISPOSED=4 UNLOADING=5
 const FIBER_STATES = ['PENDING', 'LOADING', 'ACTIVE', 'FAILED', 'DISPOSED', 'UNLOADING']
+const fiberStateName = (value) => (Number.isInteger(value) && FIBER_STATES[value]) || 'UNKNOWN'
 
 // 开发期不变量：本 host 产出的 execution_status 必须落在协议闭集内，防词汇漂移。
 for (const status of ['completed', 'error']) {
@@ -118,10 +159,10 @@ for (const status of ['completed', 'error']) {
 
 /** 写一行 JSON 到 stdout 并 await flush（保证 `process.exit(0)` 前不丢帧）。 */
 function send(frame) {
-  return new Promise((resolve) => {
+  return new Promise((resolvePromise) => {
     process.stdout.write(JSON.stringify(frame) + '\n', (err) => {
       if (err) console.error(`[worker/host] stdout write failed: ${err?.message ?? err}`)
-      resolve()
+      resolvePromise()
     })
   })
 }
@@ -138,6 +179,7 @@ function correlationOf(frame) {
   }
 }
 
+/** `started` 仅回显 correlation + tool_ref；**绝不携带时间戳或权威状态**。 */
 function startedFrame(corr, toolRef) {
   const frame = { protocol_version: CONTROL_PROTOCOL_VERSION, kind: 'started', ...corr }
   if (toolRef !== undefined) frame.tool_ref = toolRef
@@ -155,67 +197,267 @@ function responseFrame(corr, execution_status, observations, reason_codes) {
   }
 }
 
+function boundedObservation(observationId, rawValue, limitations, options = {}) {
+  const bounded = boundObservationValue(rawValue, { maxBytes: options.maxBytes ?? 512 * 1024, maxDepth: 8 })
+  return {
+    observation_id: observationId,
+    value: bounded.value,
+    source: 'worker',
+    limitations: [...new Set([...limitations, ...bounded.limitations])].slice(0, 32),
+  }
+}
+
+/** Best-effort, bounded dispose so a hung load cannot pin the worker forever. */
+async function disposeWithTimeout(fiber, timeoutMs = 2000) {
+  if (!fiber || typeof fiber.dispose !== 'function') return
+  let timer = null
+  await Promise.race([
+    Promise.resolve().then(() => fiber.dispose()).catch(() => {}),
+    new Promise((resolvePromise) => { timer = setTimeout(resolvePromise, timeoutMs) }),
+  ])
+  if (timer) clearTimeout(timer)
+}
+
 /**
- * 执行 `load-put`：用真实 Cordis 装载 PUT，产出可核验 observation。
- * 返回 response 帧对象（failing PUT 仍是 `completed`；只有 import 失败 / 非法 put 形状才 `error`）。
+ * Resolve the locked runtime for one operation.
+ * Explicit request fields win; otherwise the launcher injection (CLI env) is used.
  */
-async function handleLoadPut(corr, input) {
+async function resolveRuntimeFor(input, runtimeInjection) {
+  if (typeof input?.cordis_entry === 'string' && input.cordis_entry.length > 0) {
+    return resolveRuntimeAnchor({
+      injection: makeRuntimeAnchor({
+        cordis_entry: input.cordis_entry,
+        cordis_version: typeof input.cordis_version === 'string' ? input.cordis_version : null,
+        dsh_commit: typeof input.dsh_commit === 'string' ? input.dsh_commit : null,
+        runtime_kind: typeof input.runtime_kind === 'string' ? input.runtime_kind : 'locked-runtime',
+      }),
+      env: {},
+    })
+  }
+  const injection = input?.runtime_anchor ?? input?.runtime ?? runtimeInjection
+  return resolveRuntimeAnchor({ injection: injection ?? null, env: process.env })
+}
+
+function runtimeLimitations(runtime) {
+  const limitations = ['l1-subprocess']
+  if (runtime.status === 'available') {
+    limitations.push(runtime.anchor?.runtime_kind === 'locked-runtime' && runtime.provenance?.cordis_version_verified
+      ? 'real-cordis'
+      : 'injected-runtime')
+    limitations.push(...(runtime.limitations ?? []))
+  } else {
+    limitations.push(REASON_CORDIS_UNAVAILABLE)
+  }
+  return [...new Set(limitations)]
+}
+
+function normalizeEntryPath(entry) {
+  if (typeof entry !== 'string' || entry.length === 0 || entry.includes('\0')) return null
+  if (entry.startsWith('file:')) {
+    try { return resolve(fileURLToPath(entry)) } catch { return null }
+  }
+  if (isAbsolute(entry) || win32.isAbsolute(entry) || entry.startsWith('/')) return resolve(entry)
+  return null
+}
+
+/**
+ * 执行 `load-put`：用真实（或被显式注入的）Cordis 装载 PUT，产出可核验 observation。
+ * failing PUT 仍是 `completed`（FAILED 是待断言观测值）；只有运行时不可用 / PUT 入口
+ * 非法 / import 失败 / 非法 put 形状才 `error`。
+ */
+async function handleLoadPut(corr, input, runtimeInjection) {
+  const runtime = await resolveRuntimeFor(input, runtimeInjection)
+  if (runtime.status !== 'available' || !runtime.anchor?.cordis_entry) {
+    return responseFrame(corr, 'error', [], [REASON_CORDIS_UNAVAILABLE])
+  }
+
+  const putEntryPath = normalizeEntryPath(input?.put_entry)
+  if (putEntryPath === null) return responseFrame(corr, 'error', [], [REASON_PUT_ENTRY_INVALID])
+  let putBytes
+  try {
+    const info = await stat(putEntryPath)
+    if (!info.isFile() || info.size > MAX_RUNTIME_ENTRY_BYTES) throw new Error('put-entry-invalid')
+    putBytes = await readFile(putEntryPath)
+  } catch {
+    return responseFrame(corr, 'error', [], [REASON_PUT_ENTRY_INVALID])
+  }
+  if (putBytes.byteLength > MAX_RUNTIME_ENTRY_BYTES) {
+    return responseFrame(corr, 'error', [], [REASON_PUT_ENTRY_INVALID])
+  }
+
+  const putConfig = plainRecord(input?.put_config) ? input.put_config : {}
+  let configBytes = Infinity
+  try { configBytes = Buffer.byteLength(JSON.stringify(putConfig), 'utf8') } catch { /* non-JSON */ }
+  if (configBytes > MAX_PUT_CONFIG_BYTES) {
+    return responseFrame(corr, 'error', [], [REASON_PUT_ENTRY_INVALID])
+  }
+
   let Context
   try {
-    const cordis = await import(input.cordis_entry)
+    const cordis = await import(runtime.anchor.cordis_entry)
     Context = cordis.Context
-  } catch (err) {
-    console.error(`[worker/host] load-put: import(cordis_entry) failed: ${err?.message ?? err}`)
+  } catch (error) {
+    console.error(`[worker/host] load-put: import(cordis_entry) failed: ${sanitizeError(error).message}`)
     return responseFrame(corr, 'error', [], [REASON_WORKER_ERROR])
+  }
+  if (typeof Context !== 'function') {
+    return responseFrame(corr, 'error', [], [REASON_CORDIS_UNAVAILABLE])
   }
 
   let mod
   try {
-    mod = await import(input.put_entry)
-  } catch (err) {
-    console.error(`[worker/host] load-put: import(put_entry) failed: ${err?.message ?? err}`)
+    mod = await import(pathToFileURL(putEntryPath).href)
+  } catch (error) {
+    console.error(`[worker/host] load-put: import(put_entry) failed: ${sanitizeError(error).message}`)
     return responseFrame(corr, 'error', [], [REASON_WORKER_ERROR])
   }
-  const put = mod.default ?? mod.put ?? mod
+  const put = mod?.default ?? mod?.put ?? mod
 
-  let fiber
-  try {
-    fiber = new Context().plugin(put, input.put_config ?? {})
-  } catch (err) {
-    // 非法 put 形状（plugin() 同步抛「invalid plugin」）→ 视为装载失败。
-    console.error(`[worker/host] load-put: root.plugin() failed: ${err?.message ?? err}`)
-    return responseFrame(corr, 'error', [], [REASON_WORKER_ERROR])
-  }
-
-  // await fiber 结算加载；apply 抛错则 reject，把消息存为 error（FAILED 是待断言观测值，非传输错误）。
+  const transitions = []
+  let root = null
+  let fiber = null
+  let listener = null
+  let stateAfterPlugin = null
+  let stateAfterLoad = null
+  let stateAfterDispose = null
+  let effectsCount = 0
   let loadError = null
+  let loadPhase = null
   try {
-    await fiber
-  } catch (err) {
-    loadError = err instanceof Error ? err.message : String(err)
-  }
-  const stateAfterLoad = FIBER_STATES[fiber.state]
-  const effectsCount = typeof fiber.getEffects === 'function' ? fiber.getEffects().length : 0
+    try {
+      root = new Context()
+      if (typeof root.on === 'function') {
+        listener = (target, oldState) => {
+          if (transitions.length >= 32) return
+          transitions.push({ from: fiberStateName(oldState), to: fiberStateName(target?.state) })
+        }
+        try { root.on('internal/status', listener) } catch { listener = null }
+      }
+      fiber = root.plugin(put, putConfig)
+    } catch (error) {
+      console.error(`[worker/host] load-put: root.plugin() failed: ${sanitizeError(error).message}`)
+      return responseFrame(corr, 'error', [], [REASON_WORKER_ERROR])
+    }
+    stateAfterPlugin = fiberStateName(fiber?.state)
 
-  try {
-    await fiber.dispose()
-  } catch (err) {
-    console.error(`[worker/host] load-put: fiber.dispose() failed: ${err?.message ?? err}`)
+    // await fiber 结算加载；apply 抛错则 reject，把消息存为 error（FAILED 是待断言观测值）。
+    try {
+      await fiber
+    } catch (error) {
+      loadPhase = 'host-apply'
+      loadError = sanitizeError(error, { phase: 'host-apply' }).message
+    }
+  } finally {
+    stateAfterLoad = fiberStateName(fiber?.state)
+    if (fiber && typeof fiber.getEffects === 'function') {
+      try { effectsCount = fiber.getEffects().length } catch { effectsCount = 0 }
+    }
+    if (fiber && typeof fiber.dispose === 'function') {
+      await disposeWithTimeout(fiber, 2000)
+    }
+    stateAfterDispose = fiberStateName(fiber?.state)
+    if (listener && root && typeof root.off === 'function') {
+      try { root.off('internal/status', listener) } catch { /* best effort */ }
+    }
+    if (root && typeof root.dispose === 'function') {
+      await disposeWithTimeout(root, 2000)
+    }
   }
-  const stateAfterDispose = FIBER_STATES[fiber.state]
 
-  return responseFrame(corr, 'completed', [{
-    observation_id: 'obs-1',
-    value: {
-      state_after_load: stateAfterLoad,
-      effects_count: effectsCount,
-      state_after_dispose: stateAfterDispose,
-      error: loadError,
-      put_state: mod.state ?? null,
+  const value = {
+    state_after_plugin: stateAfterPlugin,
+    state_after_load: stateAfterLoad,
+    effects_count: effectsCount,
+    state_after_dispose: stateAfterDispose,
+    transitions,
+    load_phase: loadPhase,
+    error: loadError,
+    put_state: mod?.state ?? null,
+    runtime: {
+      status: runtime.status,
+      source: runtime.provenance.source,
+      runtime_kind: runtime.provenance.runtime_kind,
+      cordis_version: runtime.provenance.cordis_version,
+      cordis_version_verified: runtime.provenance.cordis_version_verified,
+      dsh_commit: runtime.provenance.dsh_commit,
     },
-    source: 'worker',
-    limitations: ['l1-subprocess', 'real-cordis'],
-  }], [])
+  }
+  return responseFrame(corr, 'completed', [
+    boundedObservation('obs-1', value, runtimeLimitations(runtime)),
+  ], [])
+}
+
+/** Validate + compact probe request payload; control owns the full case semantics. */
+function compactProbeInput(input) {
+  const probe = input?.probe
+  if (!plainRecord(probe) || !Array.isArray(probe.cases)) return null
+  if (probe.cases.length > 256) return null
+  const cases = []
+  for (const caseSpec of probe.cases) {
+    if (!plainRecord(caseSpec) || typeof caseSpec.test_id !== 'string' || caseSpec.test_id.length === 0) return null
+    const compact = { test_id: caseSpec.test_id }
+    if (plainRecord(caseSpec.probe) && typeof caseSpec.probe.op === 'string') compact.probe = { op: caseSpec.probe.op }
+    if (plainRecord(caseSpec.tool) && plainRecord(caseSpec.tool.manifest) && Array.isArray(caseSpec.tool.manifest.requires)) {
+      compact.tool = { manifest: { requires: caseSpec.tool.manifest.requires.filter((item) => typeof item === 'string').slice(0, 64) } }
+    }
+    cases.push(compact)
+  }
+  const put = plainRecord(probe.put)
+    ? {
+        entry: typeof probe.put.entry === 'string' ? probe.put.entry : null,
+        digest: typeof probe.put.digest === 'string' ? probe.put.digest : null,
+        config: plainRecord(probe.put.config) ? probe.put.config : {},
+      }
+    : null
+  return {
+    cases,
+    put,
+    runtimeAnchor: probe.runtime_anchor ?? probe.runtime ?? null,
+    probeTime: typeof probe.probe_time === 'string' ? probe.probe_time : undefined,
+    putTimeoutMs: Number.isSafeInteger(probe.put_timeout_ms) ? probe.put_timeout_ms : undefined,
+  }
+}
+
+/** `probe-capabilities`：worker 内两阶段探测，快照经 observations[].value 回传。 */
+async function handleCapabilityProbe(corr, input, runtimeInjection, envState, signal) {
+  const compact = compactProbeInput(input)
+  if (compact === null) return responseFrame(corr, 'error', [], [REASON_PROBE_INVALID])
+  let result
+  try {
+    result = await probeWorkerCapabilities({
+      cases: compact.cases,
+      put: compact.put,
+      runtime: compact.runtimeAnchor ?? runtimeInjection,
+      env: process.env,
+      environmentAudit: envState.envAudit,
+      probe_time: compact.probeTime,
+      putTimeoutMs: compact.putTimeoutMs,
+      signal,
+    })
+  } catch (error) {
+    console.error(`[worker/host] probe-capabilities failed: ${sanitizeError(error).message}`)
+    return responseFrame(corr, 'error', [], [REASON_PROBE_FAILED])
+  }
+  if (!result.ok) return responseFrame(corr, 'error', [], [REASON_PROBE_INVALID])
+
+  const snapshot = result.snapshot
+  const reasonCodes = snapshot.runtime.status === 'available' ? [] : [REASON_CORDIS_UNAVAILABLE]
+  const observation = boundedObservation('obs-capability-probe', snapshot, snapshot.limitations, { maxBytes: 900 * 1024 })
+  return responseFrame(corr, 'completed', [observation], reasonCodes)
+}
+
+/** `env-audit`：只回传环境键名/计数，绝不回传环境值。 */
+function handleEnvAudit(corr, envState) {
+  const audit = envState.envAudit
+  return responseFrame(corr, 'completed', [boundedObservation('obs-env-audit', {
+    schema_version: 'worker-env-audit/v1',
+    isolation: 'L1-subprocess',
+    removed_env_name_count: audit.removed_count,
+    credential_name_count: audit.credential_name_count,
+    ambient_credentials_observed: audit.ambient_credentials_observed,
+    kept_env_names: audit.kept_names,
+    process_env_key_count: Object.keys(process.env).length,
+  }, ['l1-subprocess', 'env-values-never-reported'])], [])
 }
 
 function toolResponseError(request, reason) {
@@ -234,7 +476,7 @@ function toolResponseError(request, reason) {
   }
 }
 
-async function handleToolRequest(frame, context) {
+async function handleToolRequest(frame, context, signal) {
   const shape = assertToolRequest(frame)
   if (!shape.ok) {
     console.error(`[worker/host] dropped invalid test-tool request: ${shape.reason_code}`)
@@ -259,10 +501,11 @@ async function handleToolRequest(frame, context) {
       request: frame,
       binding,
       expectedCapabilitySnapshotRef,
+      signal,
       onStarted: emitStarted,
     })
   } catch (err) {
-    console.error(`[worker/host] tool runner failed: ${err?.message ?? err}`)
+    console.error(`[worker/host] tool runner failed: ${sanitizeError(err).message}`)
     response = toolResponseError(frame, 'tool-runner-error')
   }
   const responseCheck = assertToolResponse(response, frame)
@@ -270,8 +513,22 @@ async function handleToolRequest(frame, context) {
   await send(response)
 }
 
-/** Process one NDJSON line; dispatch the two protocols without mutating either envelope. */
-async function handleLine(line, context) {
+function delay(ms, signal) {
+  if (!(ms > 0)) return Promise.resolve()
+  return new Promise((resolvePromise) => {
+    if (signal?.aborted) return resolvePromise()
+    const timer = setTimeout(done, ms)
+    function done() {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', done)
+      resolvePromise()
+    }
+    signal?.addEventListener('abort', done, { once: true })
+  })
+}
+
+/** Process one NDJSON line; dispatch both protocols without mutating either envelope. */
+async function handleLine(line, envState) {
   if (Buffer.byteLength(line, 'utf8') > MAX_FRAME_BYTES) {
     console.error('[worker/host] dropped oversized stdin line')
     return
@@ -285,65 +542,123 @@ async function handleLine(line, context) {
     return
   }
 
-  if (frame?.protocol_version === TEST_TOOL_PROTOCOL_VERSION) {
-    await handleToolRequest(frame, context)
+  const begun = envState.lifecycle.beginOp(
+    frame?.protocol_version === TEST_TOOL_PROTOCOL_VERSION ? 'tool-request' : `control:${frame?.input?.op ?? 'echo'}`,
+  )
+  if (!begun.ok) {
+    console.error(`[worker/host] rejected frame while ${begun.reason}`)
     return
   }
+  const signal = begun.handle.signal
+  try {
+    if (frame?.protocol_version === TEST_TOOL_PROTOCOL_VERSION) {
+      await handleToolRequest(frame, envState.context, signal)
+      return
+    }
 
-  const shape = assertFrameShape(frame)
-  if (!shape.ok) {
-    // 非法帧（未知版本 / 缺 correlation 字段 / 未知字段）→ error response 后继续读。
-    await send(responseFrame(correlationOf(frame), 'error', [], [shape.reason_code]))
-    return
+    const shape = assertFrameShape(frame)
+    if (!shape.ok) {
+      // 非法帧（未知版本 / 缺 correlation 字段 / 未知字段）→ error response 后继续读。
+      await send(responseFrame(correlationOf(frame), 'error', [], [shape.reason_code]))
+      return
+    }
+
+    // 合法 request 帧 → 先 emit started（worker 侧通知；不是独立启动证据）。
+    const corr = correlationOf(frame)
+    await send(startedFrame(corr))
+
+    const input = plainRecord(frame.input) ? frame.input : {}
+    const op = typeof input.op === 'string' && input.op.length > 0 ? input.op : 'echo'
+
+    if (op === 'error') {
+      await send(responseFrame(corr, 'error', [], [REASON_WORKER_ERROR]))
+      return
+    }
+
+    if (op === 'load-put') {
+      await send(await handleLoadPut(corr, input, envState.runtimeInjection))
+      return
+    }
+
+    if (op === 'probe-capabilities') {
+      await send(await handleCapabilityProbe(corr, input, envState.runtimeInjection, envState, signal))
+      return
+    }
+
+    if (op === 'env-audit') {
+      await send(handleEnvAudit(corr, envState))
+      return
+    }
+
+    if (!BUILTIN_OPS.includes(op)) {
+      await send(responseFrame(corr, 'error', [], [REASON_WORKER_ERROR]))
+      return
+    }
+
+    // op ∈ { 'echo'（缺省）, 'sleep' }：await delay_ms 后按 echo 回传 value（原样透传）。
+    const delayMs = Math.max(0, Math.min(300_000, Number(input.delay_ms) || 0))
+    await delay(delayMs, signal)
+    if (signal.aborted) {
+      await send(responseFrame(corr, 'error', [], ['worker-cancelled']))
+      return
+    }
+    const echoObservation = boundedObservation('obs-1', input.value, ['l1-subprocess'], { maxBytes: 512 * 1024 })
+    await send(responseFrame(corr, 'completed', [echoObservation], []))
+  } catch (error) {
+    console.error(`[worker/host] unhandled frame error: ${sanitizeError(error).message}`)
+  } finally {
+    begun.handle.end()
   }
+}
 
-  // 合法 request 帧 → 先 emit started（可核验调用开始事件的 worker 侧来源）。
-  const corr = correlationOf(frame)
-  await send(startedFrame(corr))
-
-  const input = frame.input ?? {}
-  const op = input.op ?? 'echo'
-
-  if (op === 'error') {
-    await send(responseFrame(corr, 'error', [], [REASON_WORKER_ERROR]))
-    return
+/** Runtime injection from `--runtime-anchor` or the launcher environment. */
+function runtimeInjectionFrom(options, envState) {
+  if (options.runtimeAnchor !== null) return options.runtimeAnchor
+  const captured = envState.capturedRuntime
+  if (captured.runtime_anchor) return captured.runtime_anchor
+  if (captured.cordis_entry) {
+    return makeRuntimeAnchor({
+      cordis_entry: captured.cordis_entry,
+      cordis_version: captured.cordis_version ?? null,
+      dsh_commit: captured.dsh_commit ?? null,
+      runtime_kind: captured.runtime_kind ?? 'locked-runtime',
+    })
   }
-
-  if (op === 'load-put') {
-    await send(await handleLoadPut(corr, input))
-    return
-  }
-
-  if (op !== 'echo' && op !== 'sleep') {
-    // 非支持 op → error（M3：只有 import 失败或非支持 op 才 error）。
-    await send(responseFrame(corr, 'error', [], [REASON_WORKER_ERROR]))
-    return
-  }
-
-  // op ∈ { 'echo'（缺省）, 'sleep' }：await delay_ms 后按 echo 回传 value（原样透传）。
-  const delayMs = Math.max(0, Number(input.delay_ms) || 0)
-  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
-  await send(responseFrame(corr, 'completed', [{
-    observation_id: 'obs-1',
-    value: input.value,
-    source: 'worker',
-    limitations: ['l1-subprocess'],
-  }], []))
+  return null
 }
 
 async function main() {
-  const context = await loadWorkerContext()
+  const options = parseWorkerArgs(process.argv.slice(2))
+  // Capture runtime configuration *before* scrubbing ambient environment; the
+  // captured values are paths/versions only, never credentials.
+  const capturedRuntime = captureRuntimeEnvironment(process.env)
+  const envAudit = scrubAmbientEnvironment(process.env)
+  const context = await loadWorkerContext(options.contextPath)
+
+  const lifecycle = createWorkerLifecycle({ onShutdown: async () => { /* probes dispose their own fibers */ } })
+  lifecycle.markReady()
+  const uninstallSignals = installSignalHandlers(lifecycle, { exit: (code) => process.exit(code) })
+  const envState = {
+    context,
+    lifecycle,
+    envAudit,
+    capturedRuntime,
+    runtimeInjection: runtimeInjectionFrom(options, { capturedRuntime }),
+  }
+
   const rl = createInterface({ input: process.stdin })
   try {
     for await (const line of rl) {
       try {
-        await handleLine(line, context)
+        await handleLine(line, envState)
       } catch (err) {
         // 单个帧处理异常不拖垮 worker；诊断到 stderr，继续下一帧。
-        console.error(`[worker/host] unhandled frame error: ${err?.message ?? err}`)
+        console.error(`[worker/host] unhandled frame error: ${sanitizeError(err).message}`)
       }
     }
   } finally {
+    uninstallSignals()
+    await lifecycle.shutdown('stdin-end')
     // stdin 'close' → 处理完全部帧后正常退出（exit 0）。
     process.exit(0)
   }

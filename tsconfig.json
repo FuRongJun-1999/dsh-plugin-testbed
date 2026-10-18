@@ -1,0 +1,46 @@
+{
+  // Type-check-only configuration for the progressive TypeScript migration.
+  //
+  // This config is the production type gate: `pnpm exec tsc --noEmit` (no global
+  // `tsc`, no Node type stripping). `strict` and `noImplicitAny` are mandatory;
+  // `any` declarations, `@ts-ignore` / `@ts-nocheck` are rejected by the
+  // migration test suite (`tests/unit/migration/`).
+  //
+  // `allowJs`/`checkJs:false` keeps the not-yet-migrated JavaScript modules
+  // loadable and introspectable (JSDoc still supplies boundary types) while the
+  // `.ts` modules below carry the strict type boundary. Once a module is
+  // migrated, its emitted `.js` build artifact is committed next to the `.ts`
+  // source and `tests/unit/migration/toolchain.test.js` proves it is fresh.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+
+    // --- the strict contract (acceptance: strict/noImplicitAny) -------------
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
+
+    // Deliberately off: both would require re-typing the whole legacy JS
+    // surface in one go, which the progressive migration forbids. They are
+    // recorded as follow-up gates, not silently bypassed -- see
+    // `src/protocol/types.ts` for the explicit `readonly`/optional model.
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false,
+
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "cordis-runtime", "cli-smoke-qa-final", "tests"]
+}

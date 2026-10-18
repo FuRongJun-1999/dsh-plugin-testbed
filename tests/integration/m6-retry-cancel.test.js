@@ -35,7 +35,7 @@ test('m6-rc ① 重试 fail 到底 → attempts.length=3 全 fail、case verdict
   const spec = makeRunSpec([
     {
       test_id: 'req.r1', node_id: 'req.r1', classification: 'required',
-      retry: { max_attempts: 3 },
+      retry: { safe: false, max_attempts: 3 },
       criteria: criteriaEquals('good', 'status'),
       probe: probeValue({ status: 'bad' }),
     },
@@ -64,7 +64,7 @@ test('m6-rc ② retry stops at first pass; verdict is pass while gate stays bloc
   const spec = makeRunSpec([
     {
       test_id: 'req.r2', node_id: 'req.r2', classification: 'required',
-      retry: { max_attempts: 3 },
+      retry: { safe: false, max_attempts: 3 },
       criteria: criteriaEquals('good', 'status'),
       probe: probeValue({ status: 'good' }),
     },

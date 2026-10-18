@@ -2,15 +2,23 @@
   "name": "@deepseek-ai/dsh-plugin-testbed",
   "version": "0.1.0",
   "private": true,
-  "description": "DSH local self-check meta-plugin: runs a developer-owned PUT through a trusted control kernel and emits an auditable receipt/v1.",
+  "description": "DSH local self-check meta-plugin (L1/local-only MVP): frozen plan -> execute -> reconcile -> gate with an auditable receipt/v1. Market gate is implemented but fail-closed/non-eligible; L3 and production signing/archive are not ready.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/supengpeng/dsh-plugin-testbed.git"
+  },
   "type": "module",
+  "packageManager": "pnpm@11.28.5",
   "scripts": {
     "test": "node --test \"tests/**/*.test.js\"",
+    "typecheck": "tsc --noEmit",
+    "build:ts": "tsc -p tsconfig.json --noEmit false --outDir src --rootDir src --allowJs false --newLine lf",
     "selfcheck": "node bin/selfcheck.js selfcheck"
   },
   "bin": { "plugin-selfcheck": "./bin/selfcheck.js" },
   "exports": {
     ".": "./index.js",
+    "./api": "./src/index.js",
     "./bin": "./bin/selfcheck.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
@@ -24,5 +32,9 @@
     "icon.svg"
   ],
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  },
   "engines": { "node": ">=20" }
 }

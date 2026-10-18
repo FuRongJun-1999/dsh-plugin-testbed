@@ -71,7 +71,7 @@ test('closure: 空计划（cases=[]）→ pre-plan blocked，plan_id=null，exit
   assert.equal(receipt.waived, undefined)
 })
 
-test('closure: 零 required（仅 optional 通过）→ blocked（zero-required），exit 2', async (t) => {
+test('closure: 零 required（仅 optional）→ 冻结前 policy-admission blocked，exit 2', async (t) => {
   const dir = tmpDir()
   cleanup(t, dir)
   const optionalPassing = makeCase({
@@ -86,9 +86,14 @@ test('closure: 零 required（仅 optional 通过）→ blocked（zero-required�
   assert.equal(out.gateDecision, 'blocked')
 
   const receipt = readReceipt(out)
-  assert.notEqual(receipt.plan_id, null) // 冻结后 blocked，仍为 frozen 形态
-  assert.equal(receipt.gate_decision, 'blocked')
-  assert.equal(receipt.gate_reason, 'zero-required')
+  // GatePolicy requires at least one required baseline item; a zero-required
+  // candidate is rejected before Plan freeze (fail-closed, no fabricated plan).
+  assert.equal(receipt.plan_id, null)
+  assert.equal(receipt.reconciliation, null)
+  assert.equal(receipt.blocked_stage, 'policy-admission')
+  assert.ok(receipt.reason_codes.includes('empty-required-baseline'), JSON.stringify(receipt.reason_codes))
+  assert.deepEqual(receipt.test_cases, [])
+  assert.equal(receipt.expected, undefined)
 })
 
 // ---------------------------------------------------------------------------
@@ -119,7 +124,7 @@ test('closure: required fail → reject，exit 1', async (t) => {
 // #3 required error（probe 缺席）→ blocked，exit 2（准入与启动证据）
 // ---------------------------------------------------------------------------
 
-test('closure: required probe 缺席 → error → blocked; kernel leaves invocation unknown, exit 2', async (t) => {
+test('closure: required 无 observation producer → 控制面独立准入拒绝（skip/rejected/not-started）→ blocked', async (t) => {
   const dir = tmpDir()
   cleanup(t, dir)
   const noProbe = makeCase({ test_id: 'req.no-probe', node_id: 'req.no-probe', classification: 'required' })
@@ -129,11 +134,13 @@ test('closure: required probe 缺席 → error → blocked; kernel leaves invoca
 
   const receipt = readReceipt(out)
   const tc = receipt.test_cases.find((c) => c.test_id === 'req.no-probe')
-  assert.equal(tc.verdict, 'error')
+  assert.equal(tc.verdict, 'skip')
   assert.equal(tc.admission_status, 'rejected')
-  assert.equal(tc.execution_status, 'error')
-  assert.equal(tc.invocation_status, 'unknown')
+  assert.equal(tc.execution_status, 'skipped')
+  assert.equal(tc.invocation_status, 'not-started')
   assert.equal(tc.invocation_evidence_verified, false)
+  assert.ok(tc.reason_codes.includes('policy_rejected'), JSON.stringify(tc.reason_codes))
+  assert.ok(tc.reason_codes.includes('no-observation-producer'), JSON.stringify(tc.reason_codes))
 })
 
 // ---------------------------------------------------------------------------
@@ -199,7 +206,7 @@ test('closure: required pass 但 invocation_status=unknown → blocked（无 sta
   const tc = receipt.test_cases.find((c) => c.test_id === 'req.no-start')
   assert.equal(tc.verdict, 'pass') // verdict 仍 pass
   assert.equal(tc.invocation_status, 'unknown') // 但启动不可核验
-  assert.equal(receipt.gate_reason, 'no-required-started-pass')
+  assert.equal(out.gateReason, 'no-required-started-pass')
 })
 
 // ---------------------------------------------------------------------------
@@ -292,7 +299,7 @@ test('closure: identical frozen inputs across runs produce the same plan_id', as
 
   const ra = readReceipt(a)
   const rb = readReceipt(b)
-  assert.deepEqual(ra.plan_resolution.capability_snapshot, rb.plan_resolution.capability_snapshot)
+  assert.deepEqual(ra.plan_resolution, rb.plan_resolution)
   assert.equal(ra.plan_id, rb.plan_id)
   assert.notEqual(ra.run_id, rb.run_id) // Run IDs remain unique while frozen inputs are identical
 })

@@ -244,3 +244,52 @@ test('value: schema 为空对象 → 一切通过', () => {
   assert.equal(validateValue(null, {}).ok, true)
   assert.equal(validateValue({ any: 'thing' }, {}).ok, true)
 })
+// ---------------------------------------------------------------------------
+// combinators / pattern / array bounds（receipt/v1 的三种互斥形态依赖 oneOf）
+// ---------------------------------------------------------------------------
+
+test('value: oneOf 恰好一个分支匹配', () => {
+  const s = { oneOf: [{ type: 'number' }, { type: 'integer' }] }
+  assert.equal(validateValue(2.5, s).ok, true) // number only
+  assert.equal(validateValue(3, s).ok, false) // number + integer → 2 matches
+  assert.ok(validateValue(3, s).errors.includes('oneOf:matched-2'))
+  assert.equal(validateValue('x', s).ok, false) // 0 matches
+  assert.ok(validateValue('x', s).errors.includes('oneOf:matched-0'))
+})
+
+test('value: anyOf 至少一个分支匹配，allOf 全部匹配', () => {
+  const any = { anyOf: [{ type: 'string' }, { type: 'number' }] }
+  assert.equal(validateValue('a', any).ok, true)
+  assert.equal(validateValue(1, any).ok, true)
+  assert.equal(validateValue(false, any).ok, false)
+
+  const all = { allOf: [{ type: 'number' }, { minimum: 5 }] }
+  assert.equal(validateValue(5, all).ok, true)
+  assert.equal(validateValue(4, all).ok, false)
+})
+
+test('value: not 拒绝匹配子 schema 的值', () => {
+  const s = { not: { const: 'forbidden' } }
+  assert.equal(validateValue('allowed', s).ok, true)
+  assert.equal(validateValue('forbidden', s).ok, false)
+  assert.ok(validateValue('forbidden', s).errors.includes('not'))
+})
+
+test('value: pattern 正反与非法正则', () => {
+  const s = { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' }
+  assert.equal(validateValue('sha256:' + 'a'.repeat(64), s).ok, true)
+  assert.equal(validateValue('sha256:latest', s).ok, false)
+  assert.equal(validateValue(1, s).ok, false) // pattern only applies to strings
+  const invalid = validateValue('x', { pattern: '(' })
+  assert.equal(invalid.ok, false)
+  assert.ok(invalid.errors.some((e) => e.startsWith('invalid-pattern:')))
+})
+
+test('value: minItems / maxItems / uniqueItems', () => {
+  assert.equal(validateValue(['a'], { type: 'array', minItems: 2 }).ok, false)
+  assert.equal(validateValue(['a', 'b'], { type: 'array', minItems: 2 }).ok, true)
+  assert.equal(validateValue(['a', 'b'], { type: 'array', maxItems: 1 }).ok, false)
+  assert.equal(validateValue(['a', 'a'], { type: 'array', uniqueItems: true }).ok, false)
+  assert.equal(validateValue(['a', 'b'], { type: 'array', uniqueItems: true }).ok, true)
+  assert.equal(validateValue([{ a: 1 }, { a: 1 }], { type: 'array', uniqueItems: true }).ok, false)
+})

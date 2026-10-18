@@ -66,12 +66,12 @@ export function buildReceipt(parts) {
 
   let form
   if (shape === 'frozen') {
-    const planId = parts.planResolution?.plan_id ?? parts.plan_id ?? null
+    const planId = parts.planId ?? parts.planResolution?.plan_id ?? parts.plan_id ?? null
     form = {
       run_status: parts.runStatus ?? 'completed',
       plan_id: planId,
       plan_candidate_ref: parts.planCandidateRef ?? null,
-      plan_resolution: parts.planResolution ?? null,
+      plan_resolution: normalizePlanResolution(parts.planResolution),
       reconciliation: parts.reconciliation ?? null,
       test_cases: parts.testCases ?? [],
       observations: parts.observations ?? [],
@@ -84,8 +84,11 @@ export function buildReceipt(parts) {
       run_status: 'blocked',
       plan_id: null,
       plan_candidate_ref: parts.planCandidateRef ?? null,
+      plan_resolution: null,
       reconciliation: null,
       test_cases: [],
+      observations: [],
+      artifacts: [],
       gate_decision: 'blocked',
       blocked_stage: parts.blockedStage ?? null,
       reason_codes: parts.reasonCodes ?? [],
@@ -95,8 +98,11 @@ export function buildReceipt(parts) {
       run_status: 'cancelled',
       plan_id: null,
       plan_candidate_ref: parts.planCandidateRef ?? null,
+      plan_resolution: null,
       reconciliation: null,
       test_cases: [],
+      observations: [],
+      artifacts: [],
       gate_decision: 'blocked',
       cancelled_stage: parts.cancelledStage ?? null,
       reason_codes: parts.reasonCodes ?? [],
@@ -178,23 +184,88 @@ export function verifyReceipt(receipt) {
   return { status: 'ok', detail: 'valid' }
 }
 
-function verifyFrozenCrossFields(receipt) {
-  const plan = receipt.plan_resolution
-  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return 'frozen-must-have-plan-resolution'
-  if (plan.plan_id !== receipt.plan_id) return 'plan-id-mismatch'
-  if (!Array.isArray(plan.test_cases)) return 'plan-test-cases-not-array'
+/**
+ * Accept both the canonical `plan_resolution` array (receipt/v1) and the legacy
+ * `{plan_id, test_cases, not_applicable}` object form used by older callers;
+ * always emit the canonical array so new receipts match `receipt/v1`.
+ * @param {unknown} value
+ * @returns {Array<object>|null}
+ */
+export function normalizePlanResolution(value) {
+  if (value === null || value === undefined) return null
+  if (Array.isArray(value)) return value
+  if (typeof value !== 'object') return value
+  const testCases = Array.isArray(value.test_cases) ? value.test_cases : null
+  if (testCases === null) return value
+  const notApplicable = new Set(
+    Array.isArray(value.not_applicable)
+      ? value.not_applicable.map((item) => (typeof item === 'string' ? item : item?.test_id)).filter(Boolean)
+      : [],
+  )
+  return testCases.map((caseSpec) => {
+    const entry = { test_id: caseSpec.test_id, classification: caseSpec.classification }
+    if (caseSpec.not_applicable !== undefined) entry.not_applicable = caseSpec.not_applicable
+    else if (notApplicable.has(caseSpec.test_id) && caseSpec.not_applicable_detail !== undefined) {
+      entry.not_applicable = caseSpec.not_applicable_detail
+    }
+    return entry
+  })
+}
 
+/**
+ * Derive the frozen-plan projection used by cross-field verification. Supports
+ * both the canonical array `plan_resolution` and the legacy object form.
+ * @param {object} receipt
+ * @returns {{ error:string|null, planById?:Map<string,object>, expectedFromPlan?:string[] }}
+ */
+function projectFrozenPlan(receipt) {
+  const plan = receipt.plan_resolution
   const planById = new Map()
-  for (const item of plan.test_cases) {
-    if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.test_id !== 'string' || item.test_id.length === 0) return 'plan-test-case-invalid'
-    if (!['required', 'optional'].includes(item.classification)) return 'plan-test-case-classification-invalid'
-    if (planById.has(item.test_id)) return 'plan-test-case-duplicate'
-    planById.set(item.test_id, item)
+  if (Array.isArray(plan)) {
+    for (const item of plan) {
+      if (!item || typeof item !== 'object' || Array.isArray(item) ||
+          typeof item.test_id !== 'string' || item.test_id.length === 0) return { error: 'plan-test-case-invalid' }
+      if (!['required', 'optional'].includes(item.classification)) return { error: 'plan-test-case-classification-invalid' }
+      if (planById.has(item.test_id)) return { error: 'plan-test-case-duplicate' }
+      if (item.not_applicable !== undefined) {
+        const na = item.not_applicable
+        if (!na || typeof na !== 'object' || Array.isArray(na) ||
+            typeof na.predicate_version !== 'string' || na.predicate_version.length === 0 ||
+            typeof na.capability_snapshot_ref !== 'string' || !/^cap-sha256:[0-9a-f]{64}$/.test(na.capability_snapshot_ref) ||
+            typeof na.reason !== 'string' || na.reason.length === 0) {
+          return { error: 'not-applicable-id-invalid' }
+        }
+      }
+      planById.set(item.test_id, item)
+    }
+    const expectedFromPlan = [...planById.values()]
+      .filter((item) => item.not_applicable === undefined)
+      .map((item) => item.test_id)
+    return { error: null, planById, expectedFromPlan }
   }
 
+  if (!plan || typeof plan !== 'object') return { error: 'frozen-must-have-plan-resolution' }
+  if (plan.plan_id !== receipt.plan_id) return { error: 'plan-id-mismatch' }
+  if (!Array.isArray(plan.test_cases)) return { error: 'plan-test-cases-not-array' }
+  for (const item of plan.test_cases) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) ||
+        typeof item.test_id !== 'string' || item.test_id.length === 0) return { error: 'plan-test-case-invalid' }
+    if (!['required', 'optional'].includes(item.classification)) return { error: 'plan-test-case-classification-invalid' }
+    if (planById.has(item.test_id)) return { error: 'plan-test-case-duplicate' }
+    planById.set(item.test_id, item)
+  }
   const naIds = extractNotApplicableIds(plan.not_applicable)
-  if (naIds === null || new Set(naIds).size !== naIds.length || naIds.some((id) => !planById.has(id))) return 'not-applicable-id-invalid'
+  if (naIds === null || new Set(naIds).size !== naIds.length || naIds.some((id) => !planById.has(id))) {
+    return { error: 'not-applicable-id-invalid' }
+  }
   const expectedFromPlan = [...planById.keys()].filter((id) => !naIds.includes(id))
+  return { error: null, planById, expectedFromPlan }
+}
+
+function verifyFrozenCrossFields(receipt) {
+  const projection = projectFrozenPlan(receipt)
+  if (projection.error !== null) return projection.error
+  const { planById, expectedFromPlan } = projection
 
   const rec = receipt.reconciliation
   if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return 'frozen-must-have-reconciliation'
@@ -248,7 +319,10 @@ function verifyFrozenCrossFields(receipt) {
     }
   }
   const provenance = receipt.provenance
-  if (provenance && typeof provenance === 'object' && provenance.put_digest != null) return 'caller-target-digest-is-unverified'
+  if (provenance && typeof provenance === 'object' && provenance.put_digest != null &&
+      (typeof provenance.put_digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(provenance.put_digest))) {
+    return 'put-digest-invalid'
+  }
   const cleanupFailure = provenance?.cleanup_failure ?? null
   const cleanup = provenance?.cleanup ?? null
   if (cleanupFailure !== null && (!cleanupFailure || typeof cleanupFailure !== 'object' || Array.isArray(cleanupFailure))) return 'cleanup-failure-invalid'
