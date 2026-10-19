@@ -1,0 +1,72 @@
+name: CI
+
+# 生效条件：push 到任意分支、或对 main 发起 PR 时触发。
+# 判据分三层：typecheck 与 unit 是硬门禁；integration 是 advisory（本仓 evidence/anchor
+# 绑定作者主机快照，见 README「运行时锚定」与 tests/integration/cordis-contract/README.md）。
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    name: typecheck (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: enable corepack (pnpm from packageManager)
+        run: corepack enable
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: tsc --noEmit
+        run: pnpm exec tsc --noEmit
+
+  unit:
+    name: unit tests (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: enable corepack (pnpm from packageManager)
+        run: corepack enable
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: unit suite
+        run: node --test "tests/unit/**/*.test.js"
+
+  integration-advisory:
+    name: integration (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: enable corepack (pnpm from packageManager)
+        run: corepack enable
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: install locked cordis runtime
+        run: pnpm --dir cordis-runtime install --frozen-lockfile
+      - name: integration suite (expected to report host-bound failures, see README)
+        run: node --test "tests/integration/**/*.test.js"

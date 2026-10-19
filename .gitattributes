@@ -1,0 +1,12 @@
+# 统一行尾：仓库内一律 LF，检出也不做 CRLF 转换。
+# 生效条件：任何平台 clone 本仓后，工作区 .js/.ts/.json 与 tsc --newLine lf 产物逐字节一致。
+# 不适用条件：二进制资产（图片/压缩包）必须显式标 binary，否则会被 text=auto 误判。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.tgz binary
